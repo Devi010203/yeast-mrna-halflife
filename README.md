@@ -1,5 +1,9 @@
+<<<<<<< HEAD
+# mRNA 3′UTR 半衰期预测项目
+=======
 # Yeast-mrna-halflife
 Code and scripts for yeast mRNA half-life prediction from UTR sequences using RNA-FM and PyTorch.
+>>>>>>> add6740321fc6c34ccd38b9819d531a83785d9de
 
 本仓库包含一个基于 **RNA-FM 预训练模型 + Transformer** 的 mRNA 3′UTR 半衰期预测项目，  
 包括主模型训练、五折交叉验证、一次完整训练，以及论文中使用的主要分析与绘图脚本。
@@ -55,7 +59,10 @@ Code and scripts for yeast mRNA half-life prediction from UTR sequences using RN
 
 - `predictions/`：  
   主程序在独立测试集上的 **真实值 + 模型预测值** 表格，可用于复现实验结果和绘图。
+<<<<<<< HEAD
+=======
   主程序最终的最佳训练模型文件。
+>>>>>>> add6740321fc6c34ccd38b9819d531a83785d9de
 
 - `model/`：  
   预留的 **RNA-FM 预训练模型存放位置**。  
