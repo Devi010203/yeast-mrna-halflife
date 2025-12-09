@@ -1,77 +1,118 @@
-## 此文件夹下的程序都需要依赖于主程序运行后产物，请确保你已经运行完主程序，并在相关脚本中修改相关文件路径
+### The programs in this folder are dependent on the main program, please make sure you have run the main program and change the paths to the relevant files in the relevant scripts.
 
 ### gene_isoform_correlation_analysis_config.py
-- **功能作用**：  
-  基于测试集预测结果，按序列将预测文件与原始 mRNA 半衰期数据集自动匹配，统一到“基因–异构体”框架下进行后验分析。脚本会在异构体层面整理真实值与预测值、计算每个基因的中位数半衰期与预测偏差，并构建 overall / cross-gene / within-gene / bias-vs-iso 等多种相关性与 R² 指标，为文中“基因内去中心化相关”“交叉基因中位数基线”等分析及后续绘图脚本提供标准输入。:contentReference[oaicite:0]{index=0}  
+- **Functionality**:
+  
+  Based on the prediction results of the test set, the predicted files are automatically matched with the original mRNA half-life dataset by sequence, and unified into the “gene-isoform” framework for a posteriori analysis. The script organizes the true and predicted values at the isoform level, calculates the median half-life and prediction deviation of each gene, and constructs various correlation and R² metrics, such as overall / cross-gene / within-gene / bias-vs-iso, for the "within-gene decentralized correlation We also construct overall / cross-gene / within-gene / biasvs-iso correlation and R² metrics to provide standard input for the “within-gene decentralized correlation” and “cross-gene median baseline” analyses in the paper and subsequent mapping scripts. :contentReference[oaicite:0]{index=0}
+  
 
-- **主要输入**：  
-  - `CONFIG["dataset"]`：原始 mRNA 半衰期数据集（CSV），包含基因 ID、3′UTR 序列和真实半衰期等列（列名可自动识别或在 CONFIG 中显式指定）。  
-  - `CONFIG["predictions"]`：模型在独立测试集上的预测结果（CSV），包含序列列和预测值列，可选包含真实值列。  
-  - `CONFIG` 中的列名与选项：  
-    - `dataset_seq_col` / `pred_seq_col`：用于匹配的序列列（为空时自动检测）。  
-    - `dataset_gene_col`：基因标识列（为空时自动检测）。  
-    - `dataset_true_col` / `pred_true_col`：真实半衰期列来源。  
-    - `pred_pred_col`：预测值列名。  
-    - `map_u_to_t`：是否在匹配前将 U→T 统一为 DNA 格式。  
-    - `outdir`：结果输出目录。  
-    - `plots`：是否额外生成基础散点图（PNG+SVG）。
+- **Primary Inputs**:
+  
+  - `CONFIG[“dataset”]`: raw mRNA half-life dataset (CSV) containing columns for gene IDs, 3′UTR sequences, and true half-lives (column names can be automatically recognized or explicitly specified in CONFIG).
+  
+  - `CONFIG[“predictions”]`: predictions of the model on an independent test set (CSV), containing columns for sequences and predictions, optionally containing columns for true values.
+  
+  - Column names in `CONFIG` with options:
+  
+    - `dataset_seq_col` / `pred_seq_col`: sequence columns to be used for matching (auto-detect when empty).
+  
+    - `dataset_gene_col`: column for gene identifiers (auto-detected when empty).
+  
+    - `dataset_true_col` / `pred_true_col`: true half-life column source.
+  
+    - `pred_pred_col`: predicted value column name.
+  
+    - `map_u_to_t`: whether to harmonize U→T to DNA format before matching.
+  
+    - `outdir`: result output directory.
+  
+    - `plots`: whether to additionally generate base scatterplot (PNG+SVG).
 
-- **主要输出**（写入 `CONFIG["outdir"]` 目录）：  
-  - `analysis_per_isoform.csv`：  
-    - 按异构体（序列）整理的表格，包含：  
-      - `gene`、`ios_real`（真实值）、`ios_pre`（预测值）  
-      - 基因层中位数 `ref_real` / `ref_pre` 及其差值 `delta_ref`  
-      - 去中心化偏差 `d_real` / `d_pre`、异构体误差 `delta_iso`  
-      - 若序列在原数据集中对应多个基因，则标记 `ambiguous_seq`。  
-  - `per_gene_summary.csv`：  
-    - 按基因聚合后的表格，给出每个基因的真实/预测中位数、异构体数量以及基因内 Pearson / Spearman / R² 等指标。  
-  - `cross_gene_median.csv`：  
-    - 每个基因的真实中位数 `ref_real` 与预测中位数 `ref_pred` 以及观测数 `n`，用于构建交叉基线散点及 R² 拟合。  
-  - `metrics_summary.json`：  
-    - 全局汇总指标（overall、cross-gene、within-gene pooled、bias vs isoform，以及 per-gene 相关的宏平均、中位数、Fisher-z 加权均值等）。  
-  - `matching_log.txt`：  
-    - 匹配与数据质量诊断（行数统计、模糊列名解析结果、丢失情况、歧义序列数等）。  
-  - 若 `CONFIG["plots"] = True`，还会生成：  
-    - `scatter_cross_gene.(png/svg)`：基因层真实/预测中位数散点图。  
-    - `scatter_within_gene.(png/svg)`：去中心化 within-gene 散点图。  
-    - `scatter_bias_vs_iso.(png/svg)`：基因偏差 vs 异构体误差散点图。
+- **Main output** (written to `CONFIG[“outdir”]` directory):
+  
+  - `analysis_per_isoform.csv`:
+  
+    - Tables organized by isoform (sequence), contains:
+  
+      - `gene`, `ios_real` (real values), `ios_pre` (predicted values)
+  
+      - Gene level median `ref_real` / `ref_pre` and its difference `delta_ref`        - Decentering bias `d_real` / `d_pre`, isoform error `delta_iso`        - Flag `ambiguous_seq` if the sequence corresponds to more than one gene in the original dataset.
+  
+  - `per_gene_summary.csv`:
+  
+    - A table aggregated by gene giving the true/predicted median, number of isoforms, and intra-gene Pearson / Spearman / R² metrics for each gene.
+  
+  - `cross_gene_median.csv`:
+  
+    - The true median `ref_real` and predicted median `ref_pred` for each gene, and the number of observations `n`, used to construct the cross-baseline scatter and R² fit.
+  
+  - `metrics_summary.json`:
+  
+    - Global summary metrics (overall, cross-gene, within-gene pooled, bias vs isoform, and per-gene related macro-averages, medians, Fisher-z weighted means, etc.).
+  
+  - `matching_log.txt`:
+  
+    - Matching and data quality diagnostics (row counts, fuzzy column name parsing results, missing cases, number of ambiguous sequences, etc.).
+  
+  - Also generated if `CONFIG[“plots”] = True`:
+  
+    - `scatter_cross_gene.(png/svg)`: scatter plot of true/predicted median at gene level.
+  
+    - `scatter_within_gene.(png/svg)`: decentralized within-gene scatterplot.
+  
+    - `scatter_bias_vs_iso.(png/svg)`: gene bias vs iso error scatterplot.
 
-- **使用方式**：  
-  1. 根据实际文件路径与列名修改脚本顶部的 `CONFIG` 字典。  
-  2. 在终端中运行：  
-     ```bash
-     python gene_isoform_correlation_analysis_config.py
-     ```  
-  3. 所有结果将输出到 `CONFIG["outdir"]` 指定的目录中，可作为后续绘图和论文分析的数据输入。
+- **How to use**:
+  
+  1. Modify the `CONFIG` dictionary at the top of the script according to the actual file path and column names.
+  
+  2. Run it in a terminal:
+  
+     ``bash     python gene_isoform_correlation_analysis_config.py     ``    3. All results will be output to the directory specified by `CONFIG[“outdir”]`, which can be used as data input for subsequent mapping and thesis analysis.
 
 
 ---
 
 ### plot_within_gene_supplement.py
-- **功能作用**：  
-  读取 `gene_isoform_correlation_analysis_config.py` 生成的结果文件，在补充材料中自动绘制两类图像：  
-  - **Sx：逐基因相关分布图**（小提琴 + 箱线 + 抖动散点），展示基因内去中心化 Pearson/Spearman 相关系数在所有基因上的分布，并在角标同时给出宏平均、中位数、Fisher-z 加权均值以及 pooled within-gene Pearson。  
-  - **Sy：交叉基因中位数散点图**，展示基因层真实中位数 vs 预测中位数的关系，并叠加 y=x 基准线与线性拟合直线，用于展示 cross-gene baseline 拟合程度。:contentReference[oaicite:1]{index=1}  
+- **Functional role**:
+  
+  Reads the result file generated by `gene_isoform_correlation_analysis_config.py` and automatically plots both types of images in the supplement:
+  
+  - **Sx: a gene-by-gene correlation distribution plot** (violin + boxline + jitter scatter) showing the distribution of within-gene decentered Pearson/Spearman correlation coefficients across all genes with macro-mean, median, Fisher-z weighted mean, and pooled within-gene Pearson given at the corner markers simultaneously.
+  
+  - **Sy: cross-gene median scatterplot** showing the true median vs predicted median at the gene level, with the y=x baseline superimposed on a linearly fitted straight line for demonstrating the cross-gene baseline fit. :contentReference[oaicite:1]{index=1}
+  
 
-- **主要输入**（通过脚本顶部常量指定）：  
-  - `PER_GENE_CSV`：`per_gene_summary.csv`，优先从中读取逐基因 Pearson/Spearman 相关系数及异构体数量。  
-  - `CROSS_GENE_CSV`：`cross_gene_median.csv`，优先从中读取基因层真实/预测中位数。  
-  - `PER_ISOFORM_CSV`：`analysis_per_isoform.csv`，在缺少上述信息时用于现场按基因重算 within-gene 相关或基因中位数。  
-  - `OUTDIR`：图像输出目录。
+- **Primary input** (specified via a constant at the top of the script):
+  
+  - `PER_GENE_CSV`: `per_gene_summary.csv`, from which gene-by-gene Pearson/Spearman correlation coefficients and the number of isoforms are preferentially read.
+  
+  - `CROSS_GENE_CSV`: `cross_gene_median.csv`, prioritize reading gene level true/predicted median from it.
+  
+  - `PER_ISOFORM_CSV`: `analysis_per_isoform.csv`, used for on-the-spot recalculation of within-gene correlation or gene median by gene when the above information is missing.
+  
+  - `OUTDIR`: image output directory.
 
-- **主要输出**（写入 `OUTDIR` 目录）：  
-  - `per_gene_corr_violin.(png/svg)`：  
-    - 逐基因 Pearson/Spearman 相关分布的小提琴 + 箱线图，并在图内文字标注宏平均、宏中位数、Fisher-z 加权均值及 pooled within-gene Pearson。  
-  - `per_gene_corr_box_jitter.(png/svg)`：  
-    - 逐基因相关分布的箱线图叠加抖动散点，每个点对应一个基因的相关系数，用于更直观展示基因层分布。  
-  - `cross_gene_median_scatter.(png/svg)`：  
-    - 基因层真实中位数 vs 预测中位数散点图，绘制 y=x 参考线和最小二乘拟合直线，并在 1:1 比例坐标系下显示，用于补充 cross-gene 基线拟合情况。
+- **Main output** (written to `OUTDIR` directory):
+  
+  - `per_gene_corr_violin.(png/svg)`:
+  
+    - Violin + boxplot of gene-by-gene Pearson/Spearman correlation distributions with macro-mean, macro-median, Fisher-z weighted mean, and pooled within-gene Pearson text labeled within the plot.
+  
+  - `per_gene_corr_box_jitter.(png/svg)`:
+  
+    - Box line plot of per-gene correlation distribution superimposed on jitter scatter points, each point corresponds to the correlation coefficient of one gene, used to visualize the gene layer distribution more intuitively.
+  
+  - `cross_gene_median_scatter.(png/svg)`:
+  
+    - Scatter plot of true median vs predicted median for gene layers, plotted with y=x reference line and least squares fit straight line, and displayed in 1:1 scale coordinate system, used to complement the cross-gene baseline fit.
 
-- **使用方式**：  
-  1. 将 `PER_GENE_CSV`、`CROSS_GENE_CSV`、`PER_ISOFORM_CSV` 修改为实际生成文件的路径，将 `OUTDIR` 修改为期望的输出目录。  
-  2. 确保已安装 `matplotlib` 与 `scienceplots` 等依赖。  
-  3. 在终端中运行：  
-     ```bash
-     python plot_within_gene_supplement.py
-     ```  
-  4. 脚本会自动在 `OUTDIR` 中生成补充材料所需的 Sx/Sy 图像文件。
+- **How to use**:
+  
+  1. Change `PER_GENE_CSV`, `CROSS_GENE_CSV`, `PER_ISOFORM_CSV` to the path of the actual generated file, and `OUTDIR` to the desired output directory.
+  
+  2. Ensure that dependencies such as `matplotlib` and `scienceplots` are installed.
+  
+  3. Run it in a terminal:
+  
+     ``bash     python plot_within_gene_supplement.py     ``    4. The script automatically generates the Sx/Sy image files required for the supplement in ``OUTDIR''.

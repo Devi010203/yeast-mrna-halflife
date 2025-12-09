@@ -173,7 +173,7 @@ class TokenTransformerHead(nn.Module):
         else:
             kpm = None
         x = self.posenc(x)
-        x = self.encoder(x, src_key_padding_mask=kpm)  # 兼容老版本API
+        x = self.encoder(x, src_key_padding_mask=kpm)
         cls = x[:, 0, :]
         return self.regressor(cls)
 
@@ -182,7 +182,7 @@ class ChunkingMRNATransformer(nn.Module):
         super().__init__()
         self.config = config
 
-        print(f"正在从本地路径加载预训练的RNA-FM模型: {config.PRETRAINED_MODEL_NAME}")
+        print(f"The pre-trained RNA-FM model is currently being loaded from a local path.: {config.PRETRAINED_MODEL_NAME}")
         self.bert = RnaFmModel.from_pretrained(config.PRETRAINED_MODEL_NAME, trust_remote_code=True)
         self.token_head = TokenTransformerHead(
             dim=config.EMBEDDING_DIM,
@@ -198,9 +198,9 @@ class ChunkingMRNATransformer(nn.Module):
         return self.token_head(token_embeddings, attention_mask)
 
 
-# --- 4.5) EMA（参数滑动平均） ---
+# --- 4.5) EMA ---
 class ModelEMA:
-    """在 optimizer.step() 后调用 update()；评估时 apply_to()/restore() 切换/恢复权重。"""
+    """Call `update()` after `optimizer.step()`; During evaluation, switch/restore weights using `apply_to()`/`restore()`."""
     def __init__(self, model: nn.Module, decay: float = 0.999):
         self.decay = decay
         self.shadow = [p.detach().clone() for p in model.parameters() if p.requires_grad]
@@ -236,7 +236,7 @@ class ModelEMA:
 
 # --- 5) Training / Eval ---
 class EarlyStopper:
-    """通用早停：监控‘越大越好’的 metric（此处用 Spearman）。"""
+    """Universal Early Stopping: Monitoring the 'bigger is better' metric (using Spearman's coefficient here)."""
     def __init__(self, patience, min_delta):
         self.patience = patience
         self.min_delta = min_delta
@@ -260,7 +260,7 @@ def train_epoch(model, data_loader, loss_fn, optimizer, device, scaler, config, 
     optimizer.zero_grad(set_to_none=True)
 
     accum = config.GRAD_ACCUMULATION_STEPS
-    for i, batch in enumerate(tqdm(data_loader, desc="训练中", leave=False)):
+    for i, batch in enumerate(tqdm(data_loader, desc="During training", leave=False)):
         input_ids = batch['input_ids'].to(device)
         attention_mask = batch['attention_mask'].to(device)
         targets = batch['targets'].to(device)
@@ -269,13 +269,12 @@ def train_epoch(model, data_loader, loss_fn, optimizer, device, scaler, config, 
             outputs = model(input_ids, attention_mask)          # [B]
             loss = loss_fn(outputs, targets) / accum
 
-        # 累积梯度，只 backward 不 step
+
         scaler.scale(loss).backward()
         total_loss += loss.detach() * accum
 
         ready_to_step = ((i + 1) % accum == 0)
         if ready_to_step:
-            # 只在真正要 step 之前做一次 unscale + clip
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
@@ -288,8 +287,8 @@ def train_epoch(model, data_loader, loss_fn, optimizer, device, scaler, config, 
             if ema is not None:
                 ema.update(model)
 
-    # 处理最后一小段残留（当样本数不是 accum 的整数倍）
-    # 注意：只有当循环至少跑过一次且最后没有对齐 accum 时才需要
+    # Processing the final small segment of residue (when the sample count is not an integer multiple of accum)
+    # Note: This is only required if the loop has run at least once and the final alignment does not match accum
     num_batches = len(data_loader)
     if num_batches > 0 and (num_batches % accum != 0):
         scaler.unscale_(optimizer)
@@ -307,13 +306,12 @@ def train_epoch(model, data_loader, loss_fn, optimizer, device, scaler, config, 
     return (total_loss / len(data_loader)).item()
 
 def evaluate(model, data_loader, loss_fn, device, config, ema: 'ModelEMA' = None):
-    # ★ 评估前切换到 EMA 权重
     if ema is not None:
         ema.apply_to(model)
     model.eval()
     total_loss, all_preds, all_targets, all_sequences = 0, [], [], []
     with torch.no_grad():
-        for batch in tqdm(data_loader, desc="评估中", leave=False):
+        for batch in tqdm(data_loader, desc="Under assessment", leave=False):
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
             targets = batch['targets'].to(device)
@@ -328,11 +326,11 @@ def evaluate(model, data_loader, loss_fn, device, config, ema: 'ModelEMA' = None
                 all_sequences.extend(sequences)
     avg_loss = total_loss / len(data_loader)
 
-    # list -> ndarray，并拉平成 1D
+
     all_targets = np.array(all_targets).reshape(-1)
     all_preds = np.array(all_preds).reshape(-1)
 
-    # 根据 config.LOG1P_TARGET 决定是否做 expm1 还原
+    # Determine whether to perform expm1 restoration based on config.LOG1P_TARGET.
     if config.LOG1P_TARGET:
         true_targets = np.expm1(all_targets)
         pred_targets = np.expm1(all_preds)
@@ -345,7 +343,6 @@ def evaluate(model, data_loader, loss_fn, device, config, ema: 'ModelEMA' = None
     pearson_corr, _ = pearsonr(true_targets, pred_targets)
     spearman_corr, _ = spearmanr(true_targets, pred_targets)
 
-    # ★ 恢复原权重
     if ema is not None:
         ema.restore(model)
     return avg_loss, r2, mse, pearson_corr, spearman_corr, true_targets, pred_targets, all_sequences
@@ -367,14 +364,13 @@ if __name__ == '__main__':
     device = get_device()
     output_dir, tensorboard_log_dir = create_experiment_directory(config, __file__)
 
-    print("--- 配置信息 ---")
-    print(f"设备: {device}")
-    print(f"输出目录: {output_dir}")
+    print("--- Configuration Information ---")
+    print(f"Equipment: {device}")
+    print(f"Output directory: {output_dir}")
     print(f"Batch Size: {config.BATCH_SIZE}, Grad Accumulation Steps: {config.GRAD_ACCUMULATION_STEPS}, "
           f"Effective Batch Size: {config.BATCH_SIZE * config.GRAD_ACCUMULATION_STEPS}")
     print("---------------------")
 
-    # 环境记录
     env_info = {
         "random_seed": config.RANDOM_SEED,
         "torch_version": torch.__version__,
@@ -387,53 +383,52 @@ if __name__ == '__main__':
     with open(os.path.join(output_dir, "environment.json"), "w") as f:
         json.dump(env_info, f, indent=4)
 
-    # 读数据
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     data_file_path = os.path.join(project_root, os.path.normpath(config.DATA_PATH))
     if not os.path.exists(data_file_path):
-        raise FileNotFoundError(f"数据文件未找到: {data_file_path}")
+        raise FileNotFoundError(f"Data file not found: {data_file_path}")
     df = pd.read_csv(data_file_path)
 
-    # 1) 检查列是否存在
+    # 1) Check whether the column exists
     req_cols = [config.SEQ_COLUMN, config.TARGET_COLUMN]
     missing = [c for c in req_cols if c not in df.columns]
     if missing:
-        raise ValueError(f"数据集中缺少以下列: {missing}，请检查列名或 Config 中的设置。")
+        raise ValueError(f"The following data is missing from the dataset:: {missing}，Please check the settings in the column name or Config.。")
 
-    # 2) 丢弃缺失值
+    # 2) Discard missing values
     df.dropna(subset=req_cols, inplace=True)
 
-    # 3) 统一映射到内部列名：sequence / target
+    # 3) Uniformly mapped to internal column names：sequence / target
     df['sequence'] = df[config.SEQ_COLUMN].astype(str)
 
     if config.LOG1P_TARGET:
-        # 训练在 log1p 空间
+        # Training in log1p space
         df['target'] = np.log1p(df[config.TARGET_COLUMN].astype(float))
     else:
-        # 训练在原始空间（或你自己提供的 log 空间）
         df['target'] = df[config.TARGET_COLUMN].astype(float)
 
     # df = pd.read_csv(data_file_path)
     # df.dropna(subset=['sequence', 'Isoform Half-Life'], inplace=True)
     # df['target'] = np.log1p(df['Isoform Half-Life'])
 
-    # 训练/验证/测试拆分
+    # Training/validation/test split
     df_train_val, df_test = train_test_split(df, test_size=config.TEST_SET_SIZE, random_state=config.RANDOM_SEED)
-    print(f"数据拆分 -> 训练+验证集: {len(df_train_val)}, 测试集: {len(df_test)}")
+    print(f"Data segmentation -> Training and validation sets: {len(df_train_val)}, test set: {len(df_test)}")
 
     # tokenizer & collate
 
     tokenizer = RnaTokenizer.from_pretrained(config.PRETRAINED_MODEL_NAME, trust_remote_code=True)
     collate_with_chunking = partial(collate_fn_no_chunk, tokenizer=tokenizer, config=config)
 
-    # --- K 折 ---
+    # --- K fold ---
     kf = KFold(n_splits=5, shuffle=True, random_state=config.RANDOM_SEED)
     val_spearman_scores = []
     results_log = []
     fold_best_metrics = []
 
-    print("--- 开始 K 折交验 ---")
+    print("--- Commencing K-fold inspection ---")
     for fold, (train_idx, val_idx) in enumerate(kf.split(df_train_val), start=1):
         print(f"\n=== Fold {fold}/5 ===")
 
@@ -447,7 +442,7 @@ if __name__ == '__main__':
                                   collate_fn=collate_with_chunking)
         val_loader = DataLoader(val_dataset, batch_size=config.BATCH_SIZE, shuffle=False,
                                 collate_fn=collate_with_chunking)
-        print("数据加载器已创建（无 chunk，动态填充）。")
+        print("The data loader has been created (dynamic filling).")
 
         writer = SummaryWriter(log_dir=os.path.join(tensorboard_log_dir, f"fold_{fold}"))
 
@@ -478,10 +473,9 @@ if __name__ == '__main__':
                 model, val_loader, loss_fn, device, config, ema=ema
             )
 
-            print(f"Epoch {epoch + 1} | 训练损失: {train_loss:.4f} | 验证损失: {val_loss:.4f} "
-                  f"| 验证 R²: {val_r2:.4f} | Pearson: {val_pearson:.4f} | Spearman: {val_spearman:.4f}")
+            print(f"Epoch {epoch + 1} | Training loss: {train_loss:.4f} | Verification loss: {val_loss:.4f} "
+                  f"| Verification R²: {val_r2:.4f} | Pearson: {val_pearson:.4f} | Spearman: {val_spearman:.4f}")
 
-            # 记录（epoch 级）当前 lr
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar('Loss/train', train_loss, epoch + 1)
             writer.add_scalar('Loss/val', val_loss, epoch + 1)
@@ -492,7 +486,7 @@ if __name__ == '__main__':
             writer.add_scalar('LearningRate', current_lr, epoch + 1)
             lr_schedule.append((epoch + 1, current_lr))
 
-            # 以 Spearman 作为“最佳/早停”依据
+            # Using Spearman's correlation coefficient as the basis for 'best/early termination'
             if val_spearman > best_val_s:
                 best_val_s = val_spearman
                 best_model_state = model.state_dict().copy()
@@ -500,7 +494,7 @@ if __name__ == '__main__':
 
             _ = early_stopper(val_spearman)
             if early_stopper.early_stop:
-                print(f"在 epoch {epoch + 1} 触发早停（依据 Spearman）。")
+                print(f"Early stopping was triggered at epoch {epoch + 1} (based on Spearman).")
                 break
 
             results_log.append({
@@ -525,19 +519,19 @@ if __name__ == '__main__':
 
         if best_model_state is not None:
             model.load_state_dict(best_model_state)
-            print(f"Fold {fold}: 已加载验证集最佳模型 (Spearman={best_val_s:.4f})。")
+            print(f"Fold {fold}: The optimal model for the validation set has been loaded. (Spearman={best_val_s:.4f})。")
 
         writer.close()
         val_spearman_scores.append(best_val_s)
         fold_best_metrics.append({"fold": fold, "best_val_spearman": best_val_s})
-        print(f"Fold {fold} 最佳验证 Spearman = {best_val_s:.4f}")
+        print(f"Fold {fold} Optimal Verification Spearman = {best_val_s:.4f}")
 
         with open(os.path.join(output_dir, f"learning_rate_schedule_fold{fold}.csv"), "w") as f:
             f.write("epoch,lr\n")
             for e, lr in lr_schedule:
                 f.write(f"{e},{lr}\n")
 
-        # 保存该折的最后一次验证预测（若可用）
+        # Save the last validated prediction for this fold (if available)
         try:
             df_val_pred = pd.DataFrame({"true": y_true, "pred": y_pred})
             df_val_pred.to_csv(os.path.join(output_dir, f"val_predictions_fold{fold}.csv"), index=False)
@@ -556,12 +550,12 @@ if __name__ == '__main__':
     cv_summary["mean_spearman"] = np.mean(val_spearman_scores)
     cv_summary.to_csv(os.path.join(output_dir, "cv_summary.csv"), index=False)
 
-    print("\n=== K 折交叉验证完成 ===")
-    print(f"每折验证 Spearman: {val_spearman_scores}")
-    print(f"平均验证 Spearman: {np.mean(val_spearman_scores):.4f}")
+    print("\n=== K-fold cross-validation completed ===")
+    print(f"Verification at each fold Spearman: {val_spearman_scores}")
+    print(f"Average verification Spearman: {np.mean(val_spearman_scores):.4f}")
 
     # --- Final Train + Test ---
-    print("\n=== 使用全部训练数据（train_val）重新训练，并在测试集评估 ===")
+    print("\n=== Retrain using the entire training dataset (train_val) and evaluate on the test set. ===")
     df_train, df_val = train_test_split(df_train_val, test_size=config.VALIDATION_SPLIT,
                                         random_state=config.RANDOM_SEED)
 
@@ -605,8 +599,8 @@ if __name__ == '__main__':
             model, val_loader, loss_fn, device, config, ema=ema
         )
 
-        print(f"Epoch {epoch + 1} | 训练损失: {train_loss:.4f} | 验证损失: {val_loss:.4f} "
-              f"| 验证 R²: {val_r2:.4f} | Pearson: {val_pearson:.4f} | Spearman: {val_spearman:.4f}")
+        print(f"Epoch {epoch + 1} | Training loss: {train_loss:.4f} | Verification loss: {val_loss:.4f} "
+              f"| Verification R²: {val_r2:.4f} | Pearson: {val_pearson:.4f} | Spearman: {val_spearman:.4f}")
 
         current_lr = optimizer.param_groups[0]['lr']
         writer.add_scalar('Loss/train', train_loss, epoch + 1)
@@ -618,7 +612,7 @@ if __name__ == '__main__':
         writer.add_scalar('LearningRate', current_lr, epoch + 1)
         lr_schedule_final.append((epoch + 1, current_lr))
 
-        # spearman 作为最佳判据
+        # spearman as the optimal criterion
         if val_spearman > best_val_s:
             best_val_s = val_spearman
             best_model_state = model.state_dict().copy()
@@ -626,7 +620,7 @@ if __name__ == '__main__':
 
         _ = early_stopper(val_spearman)
         if early_stopper.early_stop:
-            print(f"在 epoch {epoch + 1} 触发早停（依据 Spearman）。")
+            print(f"Early stopping was triggered at epoch {epoch + 1} (based on Spearman).")
             break
 
         results_log_final.append({
@@ -642,7 +636,7 @@ if __name__ == '__main__':
 
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
-        print(f"已加载最终训练阶段验证集最佳模型 (Spearman={best_val_s:.4f})，用于测试集评估。")
+        print(f"The optimal model from the final training stage validation set (Spearman={best_val_s:.4f}) has been loaded for evaluation on the test set.")
 
     runtime_log_final = {
         "runtime_sec": time.time() - start_time,
@@ -653,7 +647,7 @@ if __name__ == '__main__':
 
     pd.DataFrame(results_log_final).to_csv(os.path.join(output_dir, "training_curve_final.csv"), index=False)
 
-    # 测试集评估
+    # Test set evaluation
     test_loss, test_r2, test_mse, test_pearson, test_spearman, y_true_test, y_pred_test, seqs_test = evaluate(
         model, test_loader, loss_fn, device, config, ema=ema
     )
@@ -672,8 +666,8 @@ if __name__ == '__main__':
     with open(os.path.join(output_dir, "final_training_log.json"), "w") as f:
         json.dump(results_log_final, f, indent=4)
 
-    print(" == = 最终测试集表现 == = ")
-    print(f"测试 Loss: {test_loss:.4f} | 测试 R²: {test_r2:.4f} | 测试 MSE: {test_mse:.4f} "
+    print(" == = Final test set performance == = ")
+    print(f"Test Loss: {test_loss:.4f} | Test R²: {test_r2:.4f} | Test MSE: {test_mse:.4f} "
           f"| Pearson: {test_pearson:.4f} | Spearman: {test_spearman:.4f}")
 
     if seqs_test:
@@ -702,7 +696,7 @@ if __name__ == '__main__':
     with open(os.path.join(output_dir, "final_test_metrics.json"), "w") as f:
         json.dump(final_metrics, f, indent=4)
 
-    # 额外统计
+    # Additional statistics
     try:
         df_results["residual"] = df_results["true"] - df_results["pred"]
         df_results["abs_error"] = np.abs(df_results["residual"])
@@ -710,7 +704,7 @@ if __name__ == '__main__':
     except Exception:
         pass
 
-    # 记录测试集指标
+    # Record test set metrics
     writer = SummaryWriter(log_dir=os.path.join(tensorboard_log_dir, "final_run"))
     writer.add_scalar('Loss/test', test_loss, (epoch + 1))
     writer.add_scalar('R2/test', test_r2, (epoch + 1))
@@ -723,16 +717,16 @@ if __name__ == '__main__':
         pass
     writer.close()
 
-    # # 保存模型
+    # # Save model
     # torch.save(model.state_dict(), os.path.join(output_dir, config.MODEL_SAVE_NAME))
     # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # torch.save(model.state_dict(), os.path.join(output_dir, f"model_final_{timestamp}.pth"))
 
-    # 保存 config
+    # Save config
     try:
         with open(os.path.join(output_dir, "config.json"), "w") as f:
             json.dump(config.__dict__, f, indent=4)
     except Exception:
         pass
 
-    print(f"已保存输出到: {output_dir}")
+    print(f"Saved and exported to: {output_dir}")

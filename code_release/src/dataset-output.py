@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-一键完成 mRNA 半衰期数据集构建 + DNA→RNA 序列转换。
+One-click mRNA half-life dataset construction + DNA→RNA sequence conversion.
 
-功能概览：
-1. 读取半衰期原始表（Excel/CSV，默认 ../data/raw/mmc2.xlsx）
-2. 从基因组染色体 FASTA（默认 ../data/processed/sacCer2_chromFa）中提取每个 isoform 的 3′UTR 序列
-3. 计算简单序列特征（长度、GC 含量、单碱基/二核苷酸比例）
-4. 输出：
+Function overview:
+1. Read half-life raw table (Excel/CSV, default ../data/raw/mmc2.xlsx)
+2. Extracts 3′UTR sequences for each isoform from the genomic chromosome FASTA (default ../data/processed/sacCer2_chromFa)
+3. Calculates simple sequence characteristics (length, GC content, single-base/dinucleotide ratio)
+4. Output:
    - ../data/processed/mRNA_half_life_dataset.csv
    - ../data/sequences/sequences_with_half_life.csv
-5. 额外步骤：将上述两个 CSV 中的 `sequence` 列由 DNA 格式 (T) 转为 RNA 格式 (U)，生成：
+5. Additional step: Convert the `sequence` column in both CSV files from DNA format (T) to RNA format (U), generating:
    - ../data/processed/mRNA_half_life_dataset_RNA.csv
    - ../data/sequences/sequences_with_half_life_RNA.csv
 
-如果你只想改路径，修改下面 CONFIG 区域即可。
+Should you only wish to alter the paths, modify the CONFIG section below.
 """
 
 import os
@@ -25,10 +25,10 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 
 
-# ===================== 配置区域 =====================
+# ===================== Configuration Area =====================
 
-HALF_LIFE_FILE = '../data/raw/mmc2.xlsx'              # 原始半衰期表格
-CHROMOSOME_DIR = '../data/processed/sacCer2_chromFa'  # 染色体FASTA目录
+HALF_LIFE_FILE = '../data/raw/mmc2.xlsx'              # Original Half-Life Table
+CHROMOSOME_DIR = '../data/processed/sacCer2_chromFa'  # Chromosome FASTA Directory
 OUTPUT_DIR_PROCESSED = '../data/processed'
 OUTPUT_DIR_SEQUENCES = '../data/sequences'
 
@@ -39,72 +39,72 @@ SEQUENCES_FILE = os.path.join(
     OUTPUT_DIR_SEQUENCES, 'sequences_with_half_life.csv'
 )
 
-SEQUENCE_COLUMN_NAME = "sequence"     # 需要进行 DNA→RNA 转换的列名
-RNA_OUTPUT_SUFFIX = "_RNA"            # RNA 版本文件名后缀
+SEQUENCE_COLUMN_NAME = "sequence"     # Column names requiring DNA→RNA conversion
+RNA_OUTPUT_SUFFIX = "_RNA"            # RNA version filename suffix
 
 
-# ===================== 目录、IO 辅助函数 =====================
+# ===================== Directory, IO Utility Functions =====================
 
 def setup_directories(processed_dir, sequences_dir):
-    """创建输出目录"""
+    """Create output directory"""
     os.makedirs(processed_dir, exist_ok=True)
     os.makedirs(sequences_dir, exist_ok=True)
-    print(f"[目录] 确保目录存在: {processed_dir}, {sequences_dir}")
+    print(f"[Directory] Ensure the directory exists: {processed_dir}, {sequences_dir}")
 
 
 def load_half_life_data(file_path):
-    """从Excel或CSV文件读取半衰期数据"""
+    """Reading half-life data from Excel or CSV files"""
     if not os.path.exists(file_path):
-        print(f"[错误] 半衰期文件未找到 -> {file_path}")
+        print(f"[Error] Half-life file not found -> {file_path}")
         return None
     try:
         df = pd.read_excel(file_path)
-        print(f"[读取] 成功从 Excel 加载了 {len(df)} 个 isoform 的半衰期数据。")
+        print(f"[Reading] Successfully loaded half-life data for {len(df)} isoforms from Excel.")
     except Exception:
         try:
             df = pd.read_csv(file_path)
-            print(f"[读取] 成功从 CSV 加载了 {len(df)} 个 isoform 的半衰期数据。")
+            print(f"[Reading] Successfully loaded half-life data for {len(df)} isoforms from CSV.")
         except Exception as e:
-            print(f"[错误] 读取 Excel/CSV 文件失败: {e}")
+            print(f"[Error] Failed to read Excel/CSV file: {e}")
             return None
-    print("[读取] 数据列:", df.columns.tolist())
+    print("[Read] Data column:", df.columns.tolist())
     return df
 
 
-# ===================== 染色体 & 序列提取 =====================
+# ===================== Chromosome & Sequence Extraction =====================
 
 def extract_chromosome_sequences(chrom_dir):
-    """从FASTA文件目录中提取所有染色体序列到字典"""
+    """Extract all chromosome sequences from the FASTA file directory into the dictionary"""
     chrom_sequences = {}
     if not os.path.isdir(chrom_dir):
-        print(f"[错误] 找不到染色体目录 -> {chrom_dir}")
+        print(f"[Error] Chromosome directory not found -> {chrom_dir}")
         return chrom_sequences
 
-    print(f"[FASTA] 从 {chrom_dir} 加载染色体序列...")
+    print(f"[FASTA] Loading chromosome sequences from {chrom_dir}...")
     for filename in os.listdir(chrom_dir):
         if filename.endswith('.fa'):
             filepath = os.path.join(chrom_dir, filename)
             try:
                 for record in SeqIO.parse(filepath, "fasta"):
                     chrom_sequences[record.id] = str(record.seq).upper()
-                    print(f"  - 已加载: {record.id} (长度: {len(record.seq)})")
+                    print(f"  - Loaded: {record.id} (Length: {len(record.seq)})")
             except Exception as e:
-                print(f"[警告] 处理文件 {filepath} 时出错: {e}")
+                print(f"[Warning] An error occurred while processing the file {filepath}: {e}")
     return chrom_sequences
 
 
 def get_isoform_sequences(df, chrom_sequences):
-    """根据坐标从染色体序列中提取每个isoform的3′UTR序列（不含poly(A)）"""
+    """Extract the 3′UTR sequence (excluding the poly(A) tail) for each isoform from the chromosome sequence based on coordinates."""
     sequences = []
 
-    # 必要列：chrom、strand、cdsStart、cdsEnd、Absolute Peak Coordinate
+    # Required column: chrom、strand、cdsStart、cdsEnd、Absolute Peak Coordinate
     required = ['chrom', 'strand', 'cdsStart', 'cdsEnd', 'Absolute Peak Coordinate']
     missing = [c for c in required if c not in df.columns]
     if missing:
-        print(f"[错误] 缺少必要列: {missing}")
+        print(f"[Error] Required columns are missing: {missing}")
         return df.assign(sequence=[None] * len(df))
 
-    # 染色体名兼容映射：chr1~chr16 -> chrI~chrXVI
+    # Chromosome name compatibility mapping:chr1~chr16 -> chrI~chrXVI
     arabic_to_roman = {
         f'chr{i}': f'chr{r}' for i, r in zip(
             range(1, 17),
@@ -118,12 +118,12 @@ def get_isoform_sequences(df, chrom_sequences):
         chrom_key = arabic_to_roman.get(chrom_name, chrom_name)
 
         if chrom_key not in chrom_sequences:
-            # 尝试去掉前缀 'chr'
+            # Attempt to remove the prefix 'chr'
             alt = chrom_key.replace('chr', '')
             if alt in chrom_sequences:
                 chrom_key = alt
             else:
-                print(f"[警告] 行 {idx + 2}, 染色体 '{chrom_key}' 未在FASTA中找到。")
+                print(f"[Warning] Chromosome {idx + 2}, chromosome '{chrom_key}' not found in FASTA.")
                 sequences.append(None)
                 continue
 
@@ -136,22 +136,22 @@ def get_isoform_sequences(df, chrom_sequences):
         seq = None
         try:
             if strand == '+':
-                # 3′UTR: (cdsEnd, peak] —— Python 切片右端不含，正好长度 peak - cdsEnd
+                # 3′UTR: (cdsEnd, peak] —— Python slicing excludes the right end; it's an exact length peak - cdsEnd
                 if peak < cds_end:
-                    print(f"[警告] 行 {idx + 2} (+)，peak({peak}) < cdsEnd({cds_end})，跳过。")
+                    print(f"[Warning] Line {idx + 2} (+)，peak({peak}) < cdsEnd({cds_end})Skip.")
                 else:
                     seq = chrom_seq[cds_end:peak]
             elif strand == '-':
-                # 3′UTR: [peak, cdsStart) —— 取出后再反向互补，长度 cdsStart - peak
+                # 3′UTR: [peak, cdsStart) —— After extraction, perform reverse complementary pairing. Length cdsStart - peak
                 if peak > cds_start:
-                    print(f"[警告] 行 {idx + 2} (-)，peak({peak}) > cdsStart({cds_start})，跳过。")
+                    print(f"[Warning] Line {idx + 2} (-)，peak({peak}) > cdsStart({cds_start})Skip.")
                 else:
                     raw = chrom_seq[peak:cds_start]
                     seq = str(Seq(raw).reverse_complement())
             else:
-                print(f"[警告] 行 {idx + 2} 未知链信息: {strand}")
+                print(f"[Warning] Line {idx + 2} Unknown chain information: {strand}")
         except Exception as e:
-            print(f"[警告] 行 {idx + 2} 切片失败: {e}")
+            print(f"[Warning] Line {idx + 2} Slicing failed: {e}")
 
         sequences.append(seq)
 

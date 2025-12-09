@@ -1,12 +1,12 @@
-# 项目说明
+# Project Description
 
-本项目使用 **uv** 管理 Python 依赖与虚拟环境，主要配置文件为：
+This project uses **uv** to manage Python dependencies and virtual environments, the main configuration files are:
 
-- `pyproject.toml`：项目依赖与基础配置
+- `pyproject.toml`: project dependencies and base configuration
 
-关于 uv 的安装与详细用法，请参考 **uv 官方文档**。
+For more information about the installation and usage of **uv, please refer to the **uv official documentation**.
 
-## 主程序
+## Main program
 
-- `main.py`：项目主程序，实现 **五折交叉验证** 以及 **一次使用全部数据的完整训练与评估流程**。
-- 在运行主程序前请确保你已经正确配置环境，并下载好rna-fm预训练模型文件至`data_release\model\rna-fm`文件夹内
+- `main.py`: the main program of the project, which implements the **50% cross validation** and the **complete training and evaluation process using all data at once**.
+- Before running the main program, please make sure you have configured your environment correctly and downloaded the rna-fm pre-training model file into the `data_release\model\rna-fm` folder.
