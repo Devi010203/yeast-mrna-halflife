@@ -1,16 +1,16 @@
 # plots/plot_residual_diagnostics.py
 # -*- coding: utf-8 -*-
 """
-全量测试集 残差诊断图
-生成：
-  1) residual vs prediction（带分位平滑 + 95%CI）
-  2) residual vs truth（带分位平滑 + 95%CI）
-  3) 残差直方图（线性）
-  4) QQ plot（线性残差）
-  5) MAE by prediction decile（异方差检查）
-  6) （可选）log1p 残差的 1–3
-输出：<项目根>/result/plot/fulltrain_plot/residual_diagnostics/<时间戳>/
-图片：PNG+SVG, dpi=400；同时导出对应 CSV 和一个 summary.txt
+Full Test Set Residual Diagnostics Plots
+Generated:
+  1) Residual vs Prediction (with quantile smoothing + 95% CI)
+  2) Residual vs Truth (with quantile smoothing + 95% CI)
+  3) Residual Histogram (linear)
+  4) QQ Plot (linear residuals)
+  5) MAE by prediction decile (heteroscedasticity check)
+  6) (Optional) log1p residuals for 1–3
+Output: <project root>/result/plot/fulltrain_plot/residual_diagnostics/<timestamp>/
+Images: PNG+SVG, dpi=400; simultaneously export corresponding CSV and a summary.txt
 """
 
 import os, re, math
@@ -33,7 +33,7 @@ matplotlib.rcParams.update({
     "mathtext.default": "regular",
     "mathtext.fontset": "dejavusans",
     "axes.unicode_minus": False,
-    # 字号相关
+
     "font.size":17,
     "axes.titlesize":20,
     "axes.labelsize":19,
@@ -41,26 +41,26 @@ matplotlib.rcParams.update({
     "ytick.labelsize":15,
     "legend.fontsize":16,
     "figure.titlesize":17,
-    # "axes.titleweight": "bold",  # 图标题
-    # "axes.labelweight": "bold",  # x / y 轴标签
+    # "axes.titleweight": "bold",
+    # "axes.labelweight": "bold",
 })
 
-# ========== 在此手动填写 ==========
-RUN_DIR = r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01"  # ← 改成你的完整训练输出目录（包含 final_test_predictions.csv）
-INPUT_FILE = "final_test_predictions.csv"   # 如你有别名就改这里
+# ========== Please fill in manually here ==========
+RUN_DIR = r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01"  # ← Change to your complete training output directory (including final_test_predictions.csv)
+INPUT_FILE = "final_test_predictions.csv"   # If you have an alias, change it here.
 DPI = 400
-DO_LOG1P = True          # 是否额外生成 log1p 残差版本的 1–3
-SMOOTH_QUANTILES = np.linspace(0.0, 1.0, 11)  # 分位平滑的横坐标分位点
-NBINS_HIST = 60          # 直方图箱数
-POINT_ALPHA = 0.25       # 散点透明度，避免遮挡
-SCATTER_X_Q = (0.01, 0.99)   # 只画横坐标（预测值）在 1%–99% 分位范围内的点
-SCATTER_Y_Q = (0.01, 0.99)   # 只画纵坐标（残差）在 1%–99% 分位范围内的点
+DO_LOG1P = True          # Should log1p residual versions 1–3 be generated additionally?
+SMOOTH_QUANTILES = np.linspace(0.0, 1.0, 11)  # Quantile points of the horizontal coordinate for quantile smoothing
+NBINS_HIST = 60          # Number of histogram bins
+POINT_ALPHA = 0.25       # Scatter transparency to avoid occlusion
+SCATTER_X_Q = (0.01, 0.99)   # Plot only points where the x-axis (predicted value) falls within the 1%–99% percentile range.
+SCATTER_Y_Q = (0.01, 0.99)   # Plot only points where the vertical axis (residual) falls within the 1%–99% percentile range.
 
 # ===============================
 
 
 
-# ---- 工具 ----
+# ---- Tools ----
 def _ensure_outdir() -> Path:
     outdir = Path(__file__).resolve().parent.parent / "result" / "plot" / "fulltrain_plot" / "residual_diagnostics" / datetime.now().strftime("%Y%m%d_%H%M%S")
     outdir.mkdir(parents=True, exist_ok=True)
@@ -72,7 +72,7 @@ def _save_dual(fig, out_base: Path, dpi: int):
     plt.close(fig)
 
 def _auto_pick_columns(df: pd.DataFrame) -> Tuple[str, str]:
-    """自动识别 真值列 与 预测列；如失败抛错。"""
+    """Automatically identifies true value columns and predicted value columns; throws an error if unsuccessful."""
     cols = [c.lower() for c in df.columns]
     cand_y_true = ["true","target","label","y","y_true","ground_truth","half_life","halflife","halflife_true"]
     cand_y_pred = ["pred","prediction","y_pred","yhat","y_hat","predicted","prediction_mean"]
@@ -84,7 +84,7 @@ def _auto_pick_columns(df: pd.DataFrame) -> Tuple[str, str]:
     for c in df.columns:
         if c.lower() in cand_y_pred:
             y_pred_col = c; break
-    # 容错：若没有简单命名，试试包含关系
+    # Fault tolerance: If simple naming fails, try the containment relationship.
     if y_true_col is None:
         for c in df.columns:
             cl = c.lower()
@@ -96,7 +96,7 @@ def _auto_pick_columns(df: pd.DataFrame) -> Tuple[str, str]:
             if any(k in cl for k in ["pred","hat","predict"]):
                 y_pred_col = c; break
     if y_true_col is None or y_pred_col is None:
-        raise ValueError(f"无法自动识别列名，请检查：{df.columns.tolist()}")
+        raise ValueError(f"Unable to automatically recognize column names. Please check:{df.columns.tolist()}")
     return y_true_col, y_pred_col
 
 def _summary_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
@@ -109,7 +109,7 @@ def _summary_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]
     return {"MAE": mae, "RMSE": rmse, "R2": r2, "Pearson": pr, "Spearman": sr}
 
 def _quantile_smooth(x: np.ndarray, y: np.ndarray, qs: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """按 x 的分位点做分箱平滑；返回 (x_q, mean_y, 95%CI)"""
+    """Perform binning smoothing at the x-th quantile; return (x_q, mean_y, 95%CI)"""
     n = len(x)
     xq = np.quantile(x, qs)
     mean_y, lo, hi = [], [], []
@@ -134,12 +134,12 @@ def _quantile_smooth(x: np.ndarray, y: np.ndarray, qs: np.ndarray) -> Tuple[np.n
                 boots.append(float(np.mean(vals[samp])))
             lo.append(float(np.quantile(boots, 0.025)))
             hi.append(float(np.quantile(boots, 0.975)))
-    # 以分箱中心当作 x 坐标
+    # Use the sorting center as the x-coordinate
     x_mid = 0.5*(xq[:-1] + xq[1:])
     return x_mid, np.array(mean_y), np.array(lo), np.array(hi)
 
 def _mae_by_decile(y_true: np.ndarray, y_pred: np.ndarray, k: int = 10) -> Tuple[List[str], np.ndarray]:
-    """按预测分位数分十等份，计算每份 MAE。"""
+    """Divide the predictions into ten equal deciles and calculate the MAE for each decile."""
     qs = np.linspace(0.0, 1.0, k+1)
     edges = np.quantile(y_pred, qs)
     labels = [f"D{j+1}" for j in range(k)]
@@ -155,45 +155,45 @@ def _mae_by_decile(y_true: np.ndarray, y_pred: np.ndarray, k: int = 10) -> Tuple
 
 def main():
     outdir = _ensure_outdir()
-    print("[输出目录]", outdir)
+    print("[Output Directory]", outdir)
 
     fp = Path(RUN_DIR) / INPUT_FILE
     if not fp.is_file():
-        raise FileNotFoundError(f"未找到输入文件：{fp}")
+        raise FileNotFoundError(f"Input file not found:{fp}")
 
     df = pd.read_csv(fp)
     y_true_col, y_pred_col = _auto_pick_columns(df)
-    print(f"[列识别] y_true={y_true_col} | y_pred={y_pred_col}")
+    print(f"[Column Identification] y_true={y_true_col} | y_pred={y_pred_col}")
 
     y_true = df[y_true_col].astype(float).values
     y_pred = df[y_pred_col].astype(float).values
     resid = y_pred - y_true
 
-    # ---- 概览指标并写入 summary.txt ----
+    # ---- Review indicators and write them down summary.txt ----
     summ = _summary_metrics(y_true, y_pred)
     with open(outdir / "summary.txt", "w", encoding="utf-8") as f:
         for k, v in summ.items():
             f.write(f"{k}: {v:.6g}\n")
     pd.DataFrame({"metric": list(summ.keys()), "value": list(summ.values())}).to_csv(outdir / "summary.csv", index=False)
 
-    # 1) residual vs prediction（线性）
+    # 1) residual vs prediction（Linear）
     x = y_pred.copy()
     y = resid.copy()
 
-    # 用全部数据做分位平滑和 95%CI（统计不截断）
+    # Perform quantile smoothing and 95%CI（Statistics are not truncated.）
     x_mid, y_mean, y_lo, y_hi = _quantile_smooth(x, y, SMOOTH_QUANTILES)
     pd.DataFrame(
         {"x_mid_pred": x_mid, "mean_resid": y_mean, "ci_lo": y_lo, "ci_hi": y_hi}
     ).to_csv(outdir / "resid_vs_pred_smooth.csv", index=False)
 
-    # 只对散点做分位截断，避免少数极端点拉伸坐标轴
+    # Perform quantile truncation only on scattered points to prevent a few extreme points from stretching the axes.
     x_q_lo, x_q_hi = np.quantile(x, SCATTER_X_Q)
     y_q_lo, y_q_hi = np.quantile(y, SCATTER_Y_Q)
     mask_scatter = (x >= x_q_lo) & (x <= x_q_hi) & (y >= y_q_lo) & (y <= y_q_hi)
     x_plot = x[mask_scatter]
     y_plot = y[mask_scatter]
     n_dropped = int((~mask_scatter).sum())
-    print(f"[resid_vs_pred] 截断散点 {n_dropped} 个极端点（仅影响可视化）")
+    print(f"[resid_vs_pred] Trim {n_dropped} outliers (affects visualization only)")
 
     fig, ax = plt.subplots(figsize=(6.4, 4.6))
     ax.scatter(x_plot, y_plot, s=8, alpha=POINT_ALPHA, linewidths=0)
@@ -206,24 +206,24 @@ def main():
     ax.grid(True, linestyle="--", alpha=0.35)
     _save_dual(fig, outdir / "residual_vs_prediction", DPI)
 
-    # 2) residual vs truth（线性）
+    # 2) residual vs truth(Linear)
     x2 = y_true.copy()
     y2 = resid.copy()
 
-    # 用全部数据做分位平滑和 95%CI
+    # Perform quantile smoothing and 95%CI
     x_mid2, y_mean2, y_lo2, y_hi2 = _quantile_smooth(x2, y2, SMOOTH_QUANTILES)
     pd.DataFrame(
         {"x_mid_true": x_mid2, "mean_resid": y_mean2, "ci_lo": y_lo2, "ci_hi": y_hi2}
     ).to_csv(outdir / "resid_vs_true_smooth.csv", index=False)
 
-    # 只对散点做分位截断
+    # Perform quantile truncation only on the scattered points.
     x2_q_lo, x2_q_hi = np.quantile(x2, SCATTER_X_Q)
     y2_q_lo, y2_q_hi = np.quantile(y2, SCATTER_Y_Q)
     mask_scatter2 = (x2 >= x2_q_lo) & (x2 <= x2_q_hi) & (y2 >= y2_q_lo) & (y2 <= y2_q_hi)
     x2_plot = x2[mask_scatter2]
     y2_plot = y2[mask_scatter2]
     n_dropped2 = int((~mask_scatter2).sum())
-    print(f"[resid_vs_true] 截断散点 {n_dropped2} 个极端点（仅影响可视化）")
+    print(f"[resid_vs_true] Trim {n_dropped2} outliers (affects visualization only)")
 
     fig, ax = plt.subplots(figsize=(6.4, 4.6))
     ax.scatter(x2_plot, y2_plot, s=8, alpha=POINT_ALPHA, linewidth=0)
@@ -236,7 +236,7 @@ def main():
     ax.grid(True, linestyle="--", alpha=0.35)
     _save_dual(fig, outdir / "residual_vs_truth", DPI)
 
-    # 4) QQ plot（线性残差）
+    # 4) QQ plot（Linear residuals）
     fig, ax = plt.subplots(figsize=(6.4, 4.6))
     stats.probplot(resid, dist="norm", plot=ax)
     ax.set_title("QQ plot of residuals")
@@ -255,7 +255,7 @@ def main():
     ax.grid(True, axis="y", linestyle="--", alpha=0.35)
     _save_dual(fig, outdir / "mae_by_prediction_decile", DPI)
 
-    # 6) （可选）log1p 残差版本
+    # 6) (Optional) log1p residual version
     if DO_LOG1P:
         y_true_l = np.log1p(y_true)
         y_pred_l = np.log1p(y_pred)
@@ -289,7 +289,7 @@ def main():
         ax.grid(True, linestyle="--", alpha=0.35)
         _save_dual(fig, outdir / "residual_vs_truth_log1p", DPI)
 
-        # 直方图（log1p 残差）
+        # Histogram (log1p residuals)
         fig, ax = plt.subplots(figsize=(6.4, 4.6))
         ax.hist(resid_l, bins=NBINS_HIST)
         ax.set_xlabel("Residual (pred − true) in log1p")
@@ -298,7 +298,7 @@ def main():
         ax.grid(True, linestyle="--", alpha=0.35)
         _save_dual(fig, outdir / "residual_hist_log1p", DPI)
 
-    print("[完成] 残差诊断图与 CSV 已输出到：", outdir)
+    print("[Completed] Residual diagnostic plot and CSV have been exported to:", outdir)
 
 if __name__ == "__main__":
     main()

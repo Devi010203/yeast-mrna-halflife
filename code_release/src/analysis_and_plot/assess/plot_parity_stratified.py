@@ -1,13 +1,13 @@
 # plots/plot_parity_stratified.py
 # -*- coding: utf-8 -*-
 """
-分层 Parity（按 3'UTR 长度 & GC 分位）：
-  - 每层 parity：y=x 等式线 + 线性拟合线 + 指标注释（N/MAE/RMSE/R²/slope/intercept）
-  - 面板图：长度 Q1–Q4、GC Q1–Q4（各一页 2×2）
-  - 分层 10-bin 校准折线（E[pred] vs E[true]）
-  - 输出分层指标 CSV & 折线 CSV
-输出：result/plot/parity_stratified/<时间戳>/
-图像：PNG+SVG，dpi=400；坐标文字非斜体
+Stratified Parity (by 3'UTR length & GC percentile):
+  - Per-stratum parity: y=x equation line + linear fit line + metric annotations (N/MAE/RMSE/R²/slope/intercept)
+  - Panel plots: Length Q1–Q4, GC Q1–Q4 (2×2 per page)
+  - Stratified 10-bin calibration line plots (E[pred] vs E[true])
+  - Output stratified metric CSV & line plot CSV
+Output: result/plot/parity_stratified/<timestamp>/
+Images: PNG+SVG, dpi=400; axis labels non-italic
 """
 
 import re, math, json
@@ -28,7 +28,7 @@ matplotlib.rcParams.update({
     "mathtext.default": "regular",
     "mathtext.fontset": "dejavusans",
     "axes.unicode_minus": False,
-    # 字号相关
+    # Font Size Related
     "font.size":17,
     "axes.titlesize":20,
     "axes.labelsize":19,
@@ -36,22 +36,22 @@ matplotlib.rcParams.update({
     "ytick.labelsize":15,
     "legend.fontsize":16,
     "figure.titlesize":17,
-    # "axes.titleweight": "bold",  # 图标题
-    # "axes.labelweight": "bold",  # x / y 轴标签
+    # "axes.titleweight": "bold",  # Figure Caption
+    # "axes.labelweight": "bold",  # x / y Shaft label
 })
 
-# ========= 在此手动填写（不使用命令行）=========
-RUN_DIR    = r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01"   # ← 改成你的完整训练输出目录
-INPUT_FILE = "final_test_predictions.csv"       # ← 如有不同文件名请修改
+# ========= Please fill in manually here=========
+RUN_DIR    = r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01"   # ← Change it to your complete training output directory.
+INPUT_FILE = "final_test_predictions.csv"       # ← If the filename is different, please modify it.
 
 DPI = 400
-USE_HEXBIN = True    # True: hexbin 密度; False: 散点
+USE_HEXBIN = True    # True: hexbin density; False: scatter
 HEX_GRIDSIZE = 60
 POINT_SIZE = 6
 POINT_ALPHA = 0.25
 
-N_QUANT = 4          # 分层分位数（默认 4 分位=Q1..Q4）
-CALIB_BINS = 10      # 每层校准折线的分箱数
+N_QUANT = 4          # Quartiles (default 4 quartiles = Q1..Q4)
+CALIB_BINS = 10      # Number of bins per calibration curve per layer
 # ==============================================
 
 def _project_root() -> Path:
@@ -88,7 +88,7 @@ def _auto_cols(df: pd.DataFrame) -> Tuple[str, str]:
             if any(k in cl for k in ["pred","hat","predict"]):
                 yp = c; break
     if yt is None or yp is None:
-        raise ValueError(f"无法识别真值/预测列：{list(df.columns)}")
+        raise ValueError(f"Unable to recognize true/predicted column:{list(df.columns)}")
     return yt, yp
 
 def _seq_len_gc(series: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
@@ -114,7 +114,7 @@ def _ensure_len_gc(df: pd.DataFrame) -> pd.DataFrame:
         out["utr_len"] = L
         out["gc_frac"] = G
         return out
-    # fallback: 使用已有 length/gc 列
+    # fallback: Using existing length/gc columns
     len_col = None; gc_col = None
     for c in out.columns:
         cl = c.lower()
@@ -123,19 +123,19 @@ def _ensure_len_gc(df: pd.DataFrame) -> pd.DataFrame:
         if gc_col is None and (cl in ("gc","gc_content","gc_fraction") or ("gc" in cl and "frac" in cl)):
             gc_col = c
     if len_col is None or gc_col is None:
-        raise ValueError("缺少 sequence 或 length/gc 列，无法分层。")
+        raise ValueError("Missing sequence or length/gc columns, cannot stratify.")
     out["utr_len"] = out[len_col].astype(int).values
     out["gc_frac"] = out[gc_col].astype(float).values
     return out
 
 def _fit_line(x: np.ndarray, y: np.ndarray) -> Tuple[float, float, float]:
-    """最小二乘 y = a + b x；返回 a, b, R²"""
+    """Least squares y = a + b x;Return a, b, R²"""
     x = x.astype(float); y = y.astype(float)
     mask = np.isfinite(x) & np.isfinite(y)
     x = x[mask]; y = y[mask]
     if x.size < 2:
         return np.nan, np.nan, np.nan
-    b, a = np.polyfit(x, y, 1)   # 注意 np.polyfit 返回 [slope, intercept]
+    b, a = np.polyfit(x, y, 1)
     yhat = a + b*x
     ssr = np.sum((y - yhat)**2)
     sst = np.sum((y - y.mean())**2)
@@ -161,7 +161,7 @@ def _labels_from_edges(edges: np.ndarray) -> List[str]:
 def _quantile_edges(x: np.ndarray, q: int) -> np.ndarray:
     qs = np.linspace(0,1,q+1)
     e = np.quantile(x, qs)
-    # 去重处理（避免大量重复值时边界相同导致空层）
+    # Deduplication processing (to prevent empty layers caused by identical boundaries when dealing with large numbers of duplicate values)
     for i in range(1, len(e)):
         if e[i] <= e[i-1]:
             e[i] = e[i-1] + 1e-9
@@ -170,9 +170,9 @@ def _quantile_edges(x: np.ndarray, q: int) -> np.ndarray:
 
 def _plot_panel(y_true: np.ndarray, y_pred: np.ndarray, group_idx: np.ndarray, labels: List[str],
                 title: str, out_base: Path, limits: Tuple[float,float]):
-    """2×2 面板（若 N_QUANT!=4，则自动生成行×列近似正方形网格）"""
+    """2×2 Panel (If N_QUANT!=4, automatically generates a row × column grid approximating a square)"""
     k = len(labels)
-    # 计算网格行列
+    # Calculate grid rows and columns
     nrow = int(math.floor(math.sqrt(k)))
     ncol = int(math.ceil(k / max(1, nrow)))
     if nrow * ncol < k:
@@ -181,7 +181,7 @@ def _plot_panel(y_true: np.ndarray, y_pred: np.ndarray, group_idx: np.ndarray, l
     x_min, x_max = limits
     y_min, y_max = limits
 
-    records = []  # 用于 CSV 记录
+    records = []  # For CSV records
 
     for i in range(k):
         r = i // ncol; c = i % ncol
@@ -190,7 +190,7 @@ def _plot_panel(y_true: np.ndarray, y_pred: np.ndarray, group_idx: np.ndarray, l
         xt = y_true[sel]; yp = y_pred[sel]
         a, b, r2 = _fit_line(xt, yp)
         met = _metrics(xt, yp)
-        # 绘图
+        # Drawing
         if USE_HEXBIN:
             hb = ax.hexbin(xt, yp, gridsize=HEX_GRIDSIZE, cmap="viridis", mincnt=1, extent=(x_min, x_max, y_min, y_max))
             cb = fig.colorbar(hb, ax=ax, fraction=0.046, pad=0.02)
@@ -199,7 +199,7 @@ def _plot_panel(y_true: np.ndarray, y_pred: np.ndarray, group_idx: np.ndarray, l
             ax.scatter(xt, yp, s=POINT_SIZE, alpha=POINT_ALPHA, linewidth=0)
         # y=x
         ax.plot([x_min, x_max], [x_min, x_max], linestyle="--", color="k", linewidth=1.0, label="y = x")
-        # 拟合线
+        # Fitting line
         if np.isfinite(a) and np.isfinite(b):
             ax.plot([x_min, x_max], [a + b*x_min, a + b*x_max], color="C1", linewidth=1.8, label=f"fit: y={a:.2g}+{b:.2g}x")
         ax.set_xlim(x_min, x_max); ax.set_ylim(y_min, y_max)
@@ -207,17 +207,17 @@ def _plot_panel(y_true: np.ndarray, y_pred: np.ndarray, group_idx: np.ndarray, l
         ax.grid(True, linestyle="--", alpha=0.35)
         if r == nrow-1: ax.set_xlabel("Truth")
         if c == 0:      ax.set_ylabel("Prediction")
-        # 注释
+        # Comment
         txt = f"N={xt.size}\nMAE={met['MAE']:.3g}\nRMSE={met['RMSE']:.3g}\nR²={r2:.3f}"
         if np.isfinite(b): txt += f"\nslope={b:.3g}"
         if np.isfinite(a): txt += f"\ninterc={a:.3g}"
         ax.text(0.02, 0.98, txt, transform=ax.transAxes, ha="left", va="top", fontsize=9,
                 bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="gray", alpha=0.8))
-        # 记录
+        # Record
         rec = {"group": labels[i], "N": int(xt.size), "MAE": met["MAE"], "RMSE": met["RMSE"], "R2": r2, "slope": b, "intercept": a}
         records.append(rec)
 
-    # 清空多余子图
+    # Clear redundant subgraphs
     for j in range(k, nrow*ncol):
         r = j // ncol; c = j % ncol
         axes[r][c].axis("off")
@@ -229,7 +229,7 @@ def _plot_panel(y_true: np.ndarray, y_pred: np.ndarray, group_idx: np.ndarray, l
 
 def _calib_lines(y_true: np.ndarray, y_pred: np.ndarray, group_idx: np.ndarray, labels: List[str],
                  out_base: Path):
-    """每层 10-bin 校准折线（E[pred] vs E[true]），并导出 CSV"""
+    """Calibrate 10-bin calibration curves per layer (E[pred] vs E[true]) and export CSV"""
     fig, ax = plt.subplots(figsize=(6.8, 4.8))
     all_rows = []
     for i, lab in enumerate(labels):
@@ -237,15 +237,15 @@ def _calib_lines(y_true: np.ndarray, y_pred: np.ndarray, group_idx: np.ndarray, 
         xt = y_true[sel]; yp = y_pred[sel]
         if xt.size < 3:
             continue
-        # 按真值分位分箱
+        # Boxplots by True Value
         qs = np.linspace(0,1,CALIB_BINS+1)
         edges = np.quantile(xt, qs)
-        # 去重
+        # Dedup
         for j in range(1, len(edges)):
             if edges[j] <= edges[j-1]:
                 edges[j] = edges[j-1] + 1e-9
         edges[0] = np.nanmin(xt); edges[-1] = np.nanmax(xt)
-        # 计算每个箱的均值
+        # Calculate the mean for each box
         mx, my, n = [], [], []
         for j in range(CALIB_BINS):
             lo, hi = edges[j], edges[j+1]
@@ -257,10 +257,10 @@ def _calib_lines(y_true: np.ndarray, y_pred: np.ndarray, group_idx: np.ndarray, 
             else:
                 mx.append(np.nan); my.append(np.nan); n.append(0)
         ax.plot(mx, my, marker="o", linewidth=1.6, label=lab)
-        # 汇总 CSV
+        # aggregate CSV
         for j in range(len(mx)):
             all_rows.append({"group": lab, "bin": j+1, "mean_truth": mx[j], "mean_pred": my[j], "count": n[j]})
-    # 等式线
+    # Equator
     x_all = np.array([r["mean_truth"] for r in all_rows if np.isfinite(r["mean_truth"])])
     if x_all.size > 0:
         x0, x1 = float(np.nanmin(x_all)), float(np.nanmax(x_all))
@@ -275,11 +275,11 @@ def _calib_lines(y_true: np.ndarray, y_pred: np.ndarray, group_idx: np.ndarray, 
 
 def main():
     outdir = _ensure_outdirs()
-    print("[输出目录]", outdir)
+    print("[Output Directory]", outdir)
 
     fp = Path(RUN_DIR) / INPUT_FILE
     if not fp.is_file():
-        raise FileNotFoundError(f"未找到输入文件：{fp}")
+        raise FileNotFoundError(f"Input file not found:{fp}")
 
     df = pd.read_csv(fp).dropna(how="all").copy()
     y_true_col, y_pred_col = _auto_cols(df)
@@ -290,13 +290,13 @@ def main():
     utr_len = df["utr_len"].astype(float).values
     gc_frac = df["gc_frac"].astype(float).values
 
-    # 统一坐标范围（保证各层可比）
+    # Unify coordinate ranges (to ensure comparability across layers)
     all_min = float(np.nanmin([y_true.min(), y_pred.min()]))
     all_max = float(np.nanmax([y_true.max(), y_pred.max()]))
     pad = 0.02 * (all_max - all_min + 1e-9)
     limits = (all_min - pad, all_max + pad)
 
-    # —— 按长度分层 ——
+    # —— Layered by length ——
     len_edges = _quantile_edges(utr_len, N_QUANT)
     len_labels = _labels_from_edges(len_edges)
     len_idx = np.digitize(utr_len, len_edges, right=True) - 1
@@ -308,7 +308,7 @@ def main():
     pd.DataFrame(rec_len).to_csv(outdir / "length" / "summary_length_quartiles.csv", index=False)
     _calib_lines(y_true, y_pred, len_idx, len_labels, outdir / "lines" / "calibration_length_quartiles")
 
-    # —— 按 GC 分层 ——
+    # —— Stratified by GC ——
     gc_edges = _quantile_edges(gc_frac, N_QUANT)
     gc_labels = _labels_from_edges(gc_edges)
     gc_idx = np.digitize(gc_frac, gc_edges, right=True) - 1
@@ -320,7 +320,7 @@ def main():
     pd.DataFrame(rec_gc).to_csv(outdir / "gc" / "summary_gc_quartiles.csv", index=False)
     _calib_lines(y_true, y_pred, gc_idx, gc_labels, outdir / "lines" / "calibration_gc_quartiles")
 
-    # 配置快照
+    # Layout Snapshot
     with open(outdir / "config_snapshot.json", "w", encoding="utf-8") as f:
         json.dump({
             "RUN_DIR": RUN_DIR, "INPUT_FILE": INPUT_FILE,
@@ -328,7 +328,7 @@ def main():
             "N_QUANT": N_QUANT, "CALIB_BINS": CALIB_BINS
         }, f, ensure_ascii=False, indent=2)
 
-    print("[完成] 输出目录：", outdir)
+    print("[Completed] Output directory:", outdir)
 
 if __name__ == "__main__":
     main()

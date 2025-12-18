@@ -1,13 +1,13 @@
 # plots/plot_dataset_overview.py
 # -*- coding: utf-8 -*-
 """
-数据集概览（按 Train/Val/Test 等划分）：
-  1) 目标变量（mRNA 半衰期）直方图 + KDE（各划分叠加）
-  2) 3'UTR 长度分布直方图 + KDE（各划分叠加）
-  3) GC 含量分布直方图 + KDE（各划分叠加）
-  4) 长度 × GC 的 hexbin 面板（各划分一图）
-  5) 统计表：每划分 N、target（均值/中位/IQR/最值/偏度/峰度）、length/gc（均值±SD）
-输出：result/plot/dataset_overview/<时间戳>/   （PNG+SVG，dpi=400；坐标文字非斜体）
+Dataset Overview (Split by Train/Val/Test, etc.):
+  1) Target variable (mRNA half-life) histogram + KDE (overlay of each partition)
+  2) 3'UTR Length Distribution Histogram + KDE (overlaid by partition)
+  3) GC Content Distribution Histogram + KDE (overlaid by partition)
+  4) Length × GC Hexbin Panel (one plot per partition)
+  5) Statistical table: N per bin, target (mean/median/IQR/extremes/skewness/kurtosis), length/gc (mean ± SD)
+Output: result/plot/dataset_overview/<timestamp>/ (PNG+SVG, dpi=400; axis labels non-italic)
 """
 
 import re, math, json
@@ -32,35 +32,33 @@ import scienceplots
 
 plt.style.use(['science', 'no-latex'])
 
-# ============== 在此手动填写（不使用命令行）=============
-# 每个划分可以是“单个CSV路径”或“多个CSV路径”组成的列表；脚本会自动合并
+# ============== Fill in manually here =============
+# Each partition can be either a "single CSV path" or a list of "multiple CSV paths"; the script will automatically merge them.
 SPLITS: Dict[str, List[str]] = {
     "Train": [r"F:\mRNA_Project\3UTR\Paper\data_splits\data_splits_20251127_173725\final_split\train_set.csv"],
-    # ← 改成你的文件
-    "Val.": [r"F:\mRNA_Project\3UTR\Paper\data_splits\data_splits_20251127_173725\final_split\val_set.csv"],  # ← 改成你的文件
+    "Val.": [r"F:\mRNA_Project\3UTR\Paper\data_splits\data_splits_20251127_173725\final_split\val_set.csv"],
     "Test": [r"F:\mRNA_Project\3UTR\Paper\data_splits\data_splits_20251127_173725\final_split\test_set.csv"],
-    # ← 改成你的文件
 }
 
-# 直方图全局 bin 数（对三个分布分别采用全局一致的 bin）
+# Global bin count for histogram (using globally consistent bins for all three distributions)
 BINS_TARGET = 60
 BINS_LEN = 60
 BINS_GC = 50
 
-# Hexbin 网格密度
+# Hexbin Grid Density
 HEX_GRIDSIZE = 60
 
-# 图像参数
+# Image Parameters
 DPI = 400
-# 叠加分布：4:3 比例，所有三个图保持一致
+# Overlay distribution: 4:3 aspect ratio, all three images consistent
 FIGSIZE_OVERLAY = (6.4, 4.8)
-FIGSIZE_HEXGRID = (6.0, 5.0)  # 单个 hexbin
-MAX_TICKS_PER_AXIS = 10  # 避免刻度重叠
-ALPHA_HIST = 0.35  # 直方图透明度
+FIGSIZE_HEXGRID = (6.0, 5.0)  # Single hexbin
+MAX_TICKS_PER_AXIS = 10  # Avoid overlapping scales
+ALPHA_HIST = 0.35  # Histogram Transparency
 LINEWIDTH_KDE = 1.8
 # =======================================================
 
-# ---- 全局非斜体字体 ----
+# ---- Global non-italic font ----
 matplotlib.rcParams.update({
 
     "font.family": "sans-serif",
@@ -69,7 +67,6 @@ matplotlib.rcParams.update({
     "mathtext.default": "regular",
     "mathtext.fontset": "dejavusans",
     "axes.unicode_minus": False,
-    # 字号相关
     "font.size":17,
     "axes.titlesize":20,
     "axes.labelsize":19,
@@ -77,14 +74,13 @@ matplotlib.rcParams.update({
     "ytick.labelsize":17,
     "legend.fontsize":16,
     "figure.titlesize":17,
-    # "axes.titleweight": "bold",  # 图标题
-    # "axes.labelweight": "bold",  # x / y 轴标签
+    # "axes.titleweight": "bold",
+    # "axes.labelweight": "bold",
 
 })
 
 
 def _project_root() -> Path:
-    # 本脚本位于 <项目根>/plots/，所以 parent.parent 是项目根
     return Path(__file__).resolve().parent.parent
 
 
@@ -100,7 +96,7 @@ def _save_dual(fig, out_base: Path):
     plt.close(fig)
 
 
-# ---------- 数据读取 & 预处理 ----------
+# ---------- Data Reading & Preprocessing ----------
 def _auto_target_col(df: pd.DataFrame) -> str:
     cand = ["half_life", "halflife", "y_true", "true", "target", "label", "ground_truth"]
     for c in df.columns:
@@ -110,18 +106,18 @@ def _auto_target_col(df: pd.DataFrame) -> str:
         cl = c.lower()
         if any(k in cl for k in ["half", "true", "target", "label", "ground"]):
             return c
-    raise ValueError(f"无法识别目标列（半衰期/真值）；可接受列名示例：{cand}；当前列：{list(df.columns)}")
+    raise ValueError(f"Unable to recognize target column (half-life/truth value); Acceptable column name example: {cand}; Current column:{list(df.columns)}")
 
 
 def _ensure_len_gc(df: pd.DataFrame) -> pd.DataFrame:
-    """优先使用 sequence 计算长度与GC；否则回退到已有列"""
+    """Prioritize using sequence to compute length and GC; otherwise fall back to existing columns."""
     out = df.copy()
-    # 优先用 sequence
+    # Prioritize using sequence
     if "sequence" in out.columns:
         Ls, Gs = [], []
         for s in out["sequence"].astype(str):
-            s2 = re.sub(r"[^ACGTUacgtu]", "", s)  # 只保留 A/C/G/T/U
-            s2 = s2.upper().replace("U", "T")  # RNA U 当成 T
+            s2 = re.sub(r"[^ACGTUacgtu]", "", s)
+            s2 = s2.upper().replace("U", "T")
             L = len(s2)
             Ls.append(L)
             if L == 0:
@@ -134,7 +130,7 @@ def _ensure_len_gc(df: pd.DataFrame) -> pd.DataFrame:
         out["utr_len"] = np.array(Ls, dtype=int)
         out["gc_frac"] = np.array(Gs, dtype=float)
         return out
-    # 其次尝试已有的 length/gc 列
+    # Second, try the existing length/gc columns.
     len_col = None
     gc_col = None
     for c in out.columns:
@@ -146,7 +142,7 @@ def _ensure_len_gc(df: pd.DataFrame) -> pd.DataFrame:
         ):
             gc_col = c
     if len_col is None or gc_col is None:
-        raise ValueError("缺少 sequence 列，且未找到 length/gc 列；无法计算二维图所需的长度与GC。")
+        raise ValueError("The sequence column is missing and the length/gc column was not found; the length and GC required for the 2D plot could not be calculated.")
     out["utr_len"] = out[len_col].astype(int).values
     out["gc_frac"] = out[gc_col].astype(float).values
     return out
@@ -157,21 +153,21 @@ def _read_split(paths: List[str]) -> pd.DataFrame:
     for p in paths:
         fp = Path(p)
         if not fp.is_file():
-            print(f"[WARN] 未找到文件：{fp}（跳过）")
+            print(f"[WARN] File not found: {fp} (Skip)")
             continue
         d = pd.read_csv(fp).dropna(how="all")
         dfs.append(d)
     if len(dfs) == 0:
         return pd.DataFrame()
     df = pd.concat(dfs, axis=0, ignore_index=True)
-    # 识别目标列
+    # Target Identification Column
     tgt_col = _auto_target_col(df)
     df = _ensure_len_gc(df)
     df = df.rename(columns={tgt_col: "target"})
     return df[["target", "utr_len", "gc_frac"]].copy()
 
 
-# ---------- 统计 & KDE ----------
+# ---------- Statistics & KDE ----------
 def _iqr(a: np.ndarray) -> float:
     q1, q3 = np.nanpercentile(a, [25, 75])
     return float(q3 - q1)
@@ -180,7 +176,7 @@ def _iqr(a: np.ndarray) -> float:
 def _skew_kurt(a: np.ndarray) -> Tuple[float, float]:
     if SCIPY_OK and np.sum(np.isfinite(a)) >= 4:
         return float(stats.skew(a, bias=False)), float(stats.kurtosis(a, fisher=True, bias=False))
-    # 简单近似或返回 NaN
+    # Simple approximation or return NaN
     return np.nan, np.nan
 
 
@@ -208,7 +204,7 @@ def _kde_line(x: np.ndarray, grid: np.ndarray) -> np.ndarray:
             return kde(grid)
         except Exception:
             pass
-    # fallback: 简易核密度（高斯核）
+    # fallback: Simple Kernel Density (Gaussian Kernel)
     sd = np.nanstd(x)
     if not np.isfinite(sd) or sd == 0:
         return np.full_like(grid, np.nan, dtype=float)
@@ -218,7 +214,7 @@ def _kde_line(x: np.ndarray, grid: np.ndarray) -> np.ndarray:
     return dens
 
 
-# ---------- 画图工具 ----------
+# ---------- Drawing Tools ----------
 def _limited_ticks(ax, axis: str = "x", max_ticks: int = 10):
     if axis == "x":
         locs = ax.get_xticks()
@@ -240,17 +236,17 @@ def _overlay_hist_kde(
     panel_label: str | None = None,
     legend_anchor: Tuple[float, float] | None = None,
 ):
-    """叠加直方图 + KDE；不显示标题，仅在左上角加 (a)/(b)/(c) 等标记"""
-    # 全局范围 & 网格
+    """Overlay histogram + KDE; hide title, display only (a)/(b)/(c) labels in top-left corner"""
+    # Global & Grid
     all_vals = np.concatenate([v[np.isfinite(v)] for v in data.values() if v is not None])
     x_min, x_max = float(np.nanmin(all_vals)), float(np.nanmax(all_vals))
     if x_max <= x_min:
         x_max = x_min + 1e-6
     grid = np.linspace(x_min, x_max, 1000)
     fig, ax = plt.subplots(figsize=FIGSIZE_OVERLAY)
-    # 统一 bins
+    # Unified bins
     edges = np.linspace(x_min, x_max, bins + 1)
-    # 绘制
+    # draw
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
     for i, (name, vals) in enumerate(data.items()):
         v = vals[np.isfinite(vals)]
@@ -271,24 +267,24 @@ def _overlay_hist_kde(
         if np.any(np.isfinite(dens)):
             ax.plot(grid, dens, color=color, linewidth=LINEWIDTH_KDE)
 
-    # 不再设置标题，只保留坐标轴标签
+    # No longer set titles; only retain axis labels.
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Density")
     ax.grid(True, linestyle="--", alpha=0.35)
     if legend_anchor is None:
-        # 默认位置（另外两个图还是走这一支）
+        # Default location (the other two diagrams still follow this branch)
         ax.legend(frameon=False)
     else:
-        # 使用你指定的位置
+        # Use the location you specified
         ax.legend(
             frameon=False,
-            loc="upper right",  # 以右上角为参考点
-            bbox_to_anchor=legend_anchor,  # (x, y)，y<1 就是“往下挪一点”
+            loc="upper right",  # Using the upper-right corner as the reference point
+            bbox_to_anchor=legend_anchor,  # (x, y)，y<1 Just "move it down a bit."
         )
 
     _limited_ticks(ax, "x", MAX_TICKS_PER_AXIS)
 
-    # 在方框内部左上角添加 (a)/(b)/(c)
+    # Add (a)/(b)/(c) in the upper-left corner inside the box.
     if panel_label is not None:
         ax.text(
             0.02,
@@ -307,7 +303,7 @@ def _overlay_hist_kde(
 def _hexbin_panels(Ls: Dict[str, np.ndarray], GCs: Dict[str, np.ndarray], outdir: Path,  panel_label: str | None = None, ):
     names = list(Ls.keys())
     k = len(names)
-    # 统一坐标范围
+    # Unified coordinate range
     all_L = np.concatenate([Ls[n][np.isfinite(Ls[n])] for n in names])
     all_G = np.concatenate([GCs[n][np.isfinite(GCs[n])] for n in names])
     xmin, xmax = float(np.nanmin(all_L)), float(np.nanmax(all_L))
@@ -319,7 +315,7 @@ def _hexbin_panels(Ls: Dict[str, np.ndarray], GCs: Dict[str, np.ndarray], outdir
     ymin -= pad_y
     ymax += pad_y
 
-    # 计算面板行列（尽量接近正方形）
+    # Calculate the number of rows and columns in the panel (aiming for a shape as close to a square as possible)
     nrow = int(math.floor(math.sqrt(k)))
     ncol = int(math.ceil(k / max(1, nrow)))
     if nrow * ncol < k:
@@ -331,10 +327,10 @@ def _hexbin_panels(Ls: Dict[str, np.ndarray], GCs: Dict[str, np.ndarray], outdir
         figsize=(FIGSIZE_HEXGRID[0] * ncol, FIGSIZE_HEXGRID[1] * nrow),
         squeeze=False,
     )
-    # 在整张图的左上角加 (d)，使用 figure 坐标
+    # Add (d) in the upper-left corner of the entire figure using figure coordinates.
     if panel_label is not None:
         fig.text(
-            0.01, 0.99,           # (x, y) 在 figure 坐标中的位置，(0,0) 左下，(1,1) 右上
+            0.01, 0.99,
             panel_label,
             transform=fig.transFigure,
             ha="left",
@@ -368,7 +364,7 @@ def _hexbin_panels(Ls: Dict[str, np.ndarray], GCs: Dict[str, np.ndarray], outdir
             ax.set_ylabel("GC fraction")
         ax.grid(False)
 
-    # 关闭多余子图
+    # Close redundant subgraphs
     for j in range(k, nrow * ncol):
         r = j // ncol
         c = j % ncol
@@ -379,26 +375,26 @@ def _hexbin_panels(Ls: Dict[str, np.ndarray], GCs: Dict[str, np.ndarray], outdir
     _save_dual(fig, outdir / "hexbin_length_gc")
 
 
-# ---------- 主流程 ----------
+# ---------- Main Process ----------
 def main():
     outdir = _ensure_outdir()
-    print("[输出目录]", outdir)
+    print("[Output Directory]", outdir)
 
-    # 读取各划分
+    # Read each partition
     split_data = {}
     for name, paths in SPLITS.items():
         if isinstance(paths, (str, Path)):
             paths = [str(paths)]
         df = _read_split(paths)
         if df.empty:
-            print(f"[WARN] 划分 {name} 没有有效数据，跳过。")
+            print(f"[WARN] Partition {name} has no valid data; skipping.")
             continue
         split_data[name] = df
 
     if len(split_data) == 0:
-        raise RuntimeError("没有任何划分的数据，请在 SPLITS 中填写正确的 CSV 路径。")
+        raise RuntimeError("No split data is available. Please enter the correct CSV path in SPLITS.")
 
-    # 汇总统计表
+    # Summary Statistics Table
     rows = []
     for name, df in split_data.items():
         t = df["target"].astype(float).values
@@ -441,21 +437,21 @@ def main():
 
     pd.DataFrame(rows).to_csv(outdir / "summary_by_split.csv", index=False)
 
-    # ---- 分布叠加：目标 / 长度 / GC ----
-    # 目标变量
+    # ---- Distribution Overlay: Target / Length / GC ----
+    # Target variable
     target_dict = {name: df["target"].values.astype(float) for name, df in split_data.items()}
     bins_t = BINS_TARGET
-    # 若想自适应，也可改：bins_t = _freedman_diaconis_bins(np.concatenate(list(target_dict.values())))
+    # If you want it to be adaptive, you can also modify it:bins_t = _freedman_diaconis_bins(np.concatenate(list(target_dict.values())))
     _overlay_hist_kde(
         target_dict,
         bins_t,
         "Half-life",
         outdir / "dist_target_overlay",
         panel_label="(a)",
-        legend_anchor=(0.52, 0.9),  # 这里决定“向下移动多少”
+        legend_anchor=(0.52, 0.9),
     )
 
-    # 长度
+    # Length
     len_dict = {name: df["utr_len"].values.astype(float) for name, df in split_data.items()}
     _overlay_hist_kde(len_dict, BINS_LEN, "3'UTR length (nt)", outdir / "dist_length_overlay", panel_label="(b)")
 
@@ -463,13 +459,13 @@ def main():
     gc_dict = {name: df["gc_frac"].values.astype(float) for name, df in split_data.items()}
     _overlay_hist_kde(gc_dict, BINS_GC, "GC fraction", outdir / "dist_gc_overlay", panel_label="(c)")
 
-    # ---- 长度 × GC hexbin 面板 ----
+    # ---- Length × GC hexbin panel ----
     Ls = {name: df["utr_len"].values.astype(float) for name, df in split_data.items()}
     GCs = {name: df["gc_frac"].values.astype(float) for name, df in split_data.items()}
     _hexbin_panels(Ls, GCs, outdir, panel_label="(d)")
 
 
-    # 配置快照
+    # Layout Snapshot
     with open(outdir / "config_snapshot.json", "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -484,7 +480,7 @@ def main():
             indent=2,
         )
 
-    print("[完成] 输出目录：", outdir)
+    print("[Completed] Output directory:", outdir)
 
 
 if __name__ == "__main__":

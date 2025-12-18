@@ -3,16 +3,15 @@
 """
 analyze_mutation_results.py
 
-用法：
-1) 修改 CONFIG 中的 MUTATION_CSV 和 OUT_DIR
-2) 运行：python analyze_mutation_results.py
-产物：CSV 汇总 + 图 (PNG≥400dpi + SVG)
+Usage:
+1) Modify MUTATION_CSV and OUT_DIR in CONFIG
+2) Run: python analyze_mutation_results.py
+Output: CSV summary + figures (PNG≥400dpi + SVG)
 
-统计口径：
-- 主效应以“每样本均值Δ”为单位（对同一转录本的多位点取均值），
-  再按 (motif,new) 与按 motif 合并进行统计与检验。
-- 显著性：Wilcoxon 符号秩检验（Δ vs 0），多重校正：Benjamini–Hochberg (FDR)。
-- 位置效应：Δ vs 相对位置（motif中心 / 序列长度），等宽分箱。
+Statistical metrics:
+- Main effects measured in "Δ per sample mean" (averaged across multiple sites per transcript), then statistically analyzed and tested by (motif, new) and by motif.
+- Significance: Wilcoxon signed-rank test (Δ vs 0), multiple correction: Benjamini–Hochberg (FDR).
+- Position effects: Δ vs relative position (motif center / sequence length), equal-width binning.
 """
 
 import os, json, math, re
@@ -33,7 +32,7 @@ matplotlib.rcParams.update({
     "mathtext.default": "regular",
     "mathtext.fontset": "dejavusans",
     "axes.unicode_minus": False,
-    # 字号相关
+
     "font.size":17,
     "axes.titlesize":20,
     "axes.labelsize":19,
@@ -41,44 +40,44 @@ matplotlib.rcParams.update({
     "ytick.labelsize":15,
     "legend.fontsize":16,
     "figure.titlesize":17,
-    # "axes.titleweight": "bold",  # 图标题
-    # "axes.labelweight": "bold",  # x / y 轴标签
+    # "axes.titleweight": "bold",
+    # "axes.labelweight": "bold",
 })
 
-# ============== 配置 ==============
+# ============== Placement ==============
 @dataclass
 class CONFIG:
-    # 你的 mutation_results.csv 路径（来自 run_interpretability.py 的输出）
+    # The path to your mutation_results.csv file (output from run_interpretability.py)
     MUTATION_CSV: str = r"F:\mRNA_Project\3UTR\Paper\plots\result\plot\interpretability_result\20251113_101142\mutation_results.csv"
-    # 输出目录（自动创建）
+    # Output Directory (Automatically Created)
     OUT_DIR: str = r"F:\mRNA_Project\3UTR\Paper\plots\result\plot\mutation_plot"
-    # Top-K（按 |mean_delta| 排序后作图）
+    # Top-KPlot after sorting by |mean_delta|
     TOPK: int = 18
-    # 位置分箱数量
+    # Number of Positioned Boxes
     N_POS_BINS: int = 20
-    # bootstrap 次数
+    # bootstrap Number of times
     N_BOOT: int = 2000
-    # PNG 分辨率 & 是否保存 SVG
+    # PNG Resolution & Save SVG
     DPI: int = 400
     SAVE_SVG: bool = True
-    # 画多子图时每行最多列数
+    # Maximum number of columns per row when drawing a polyhedron diagram
     NCOLS: int = 4
-    # 随机种子（bootstrap 抽样）
+    # Random seed（bootstrap Sampling）
     SEED: int = 42
-    # 相对变化阈值，例如 0.10 = Δt/t0 > 10% 记作“强响应”
+    # Relative change threshold, e.g., 0.10 = Δt/t0 > 10%, is recorded as "strong response."”
     BIG_FRAC_THRESH: float = 0.10
-    # 基线半衰期分层的 bin 数（用 base_pred 分位数等分）
+    # Number of bins in baseline half-life stratification (equally divided by base_pred quantiles)
     N_T0_BINS: int = 3
-    # residuals.csv 路径；留空则默认与 MUTATION_CSV 同目录的 residuals.csv
+    # residuals.csv Path; if left blank, defaults to residuals.csv in the same directory as MUTATION_CSV.
     RESIDUALS_CSV: str = ""
-    # 是否对 residual 较小的样本做单独统计
+    # Whether to perform separate statistics for samples with smaller residuals
     USE_RESIDUAL_FILTER: bool = True
-    # residual 绝对值阈值；<=0 时自动取 abs_residual 的中位数
+    # residual Absolute value threshold; automatically takes the median of abs_residual when <=0
     RESIDUAL_ABS_THRESH: float = 0.0
 
 CFG = CONFIG()
 
-# ============== 工具函数 ==============
+# ============== Utility functions ==============
 def ensure_dir(p):
     os.makedirs(p, exist_ok=True)
 
@@ -98,7 +97,7 @@ def bootstrap_ci(x, n_boot=2000, ci=95, seed=2025):
     return float(lo), float(hi)
 
 def bh_fdr(pvals):
-    """Benjamini–Hochberg FDR 校正。返回与 pvals 等长的 q-values（np.array）。"""
+    """Benjamini–Hochberg FDR correction. Returns q-values (np.array) of the same length as pvals."""
     p = np.asarray(pvals, float)
     n = len(p)
     order = np.argsort(p)
@@ -114,7 +113,7 @@ def bh_fdr(pvals):
     return out
 
 def safe_wilcoxon_zero(x):
-    """Δ vs 0 的符号秩检验；返回 p 值。异常时返回 1.0。"""
+    """Δ vs 0 Symbol rank test; returns the p-value. Returns 1.0 in case of an exception."""
     x = np.asarray(x, float)
     x = x[~np.isnan(x)]
     if len(x) == 0 or np.allclose(x, 0):
@@ -135,8 +134,8 @@ def savefig(fig, path_base):
 
 def compute_effect_stats(sub: pd.DataFrame):
     """
-    给一批 per-sequence 记录（包含 delta 与 base_pred），
-    统一计算均值/中位数/分位数/比例等统计。
+    Perform uniform statistical calculations (including mean, median, quantiles, proportions, etc.)
+    on a batch of per-sequence records (containing delta and base_pred).
     """
     n = int(len(sub))
     if n == 0:
@@ -153,10 +152,10 @@ def compute_effect_stats(sub: pd.DataFrame):
             "q90_frac_delta": np.nan,
             "prop_delta_pos": np.nan,
             "prop_frac_gt_big": np.nan,
-            "prop_frac_lt_-0.1": np.nan,   # ★ 新增这一行
+            "prop_frac_lt_-0.1": np.nan,
         }
 
-    # 绝对Δ
+    # Absolute Δ
     arr = sub["delta"].to_numpy(dtype=float)
     arr = arr[np.isfinite(arr)]
     if arr.size == 0:
@@ -169,7 +168,7 @@ def compute_effect_stats(sub: pd.DataFrame):
         p = safe_wilcoxon_zero(arr)
         prop_pos = float(np.mean(arr > 0))
 
-    # 相对变化 Δ / base_pred
+    # Relative change Δ / base_pred
     frac_arr = (sub["delta"] / sub["base_pred"]).replace(
         [np.inf, -np.inf], np.nan
     ).to_numpy(dtype=float)
@@ -180,9 +179,9 @@ def compute_effect_stats(sub: pd.DataFrame):
         mean_frac = float(np.mean(frac_arr))
         median_frac = float(np.median(frac_arr))
         q90_frac = float(np.quantile(frac_arr, 0.9))
-        # Δ/t0 > +BIG_FRAC_THRESH 的比例（强升高）
+        # Δ/t0 > +BIG_FRAC_THRESH ratio (strong elevation)
         prop_big = float(np.mean(frac_arr > CFG.BIG_FRAC_THRESH))
-        # Δ/t0 < -BIG_FRAC_THRESH 的比例（强降低）
+        # Δ/t0 < -BIG_FRAC_THRESH ratio (strong reduction)
         prop_neg_big = float(np.mean(frac_arr < -CFG.BIG_FRAC_THRESH))
 
     return {
@@ -198,22 +197,21 @@ def compute_effect_stats(sub: pd.DataFrame):
         "q90_frac_delta": q90_frac,
         "prop_delta_pos": prop_pos,
         "prop_frac_gt_big": prop_big,
-        # 列名就叫你说的这个，DataFrame 里完全没问题
         "prop_frac_lt_-0.1": prop_neg_big,
     }
 
 
 def select_motifs_for_plot(df_motif: pd.DataFrame, topk: int):
     """
-    统一选出要在各类图中展示的 motif 列表：
-    1) 先按 |mean_delta| 从大到小选出 Top-K
-    2) 在这 Top-K 内部按 mean_delta 从大到小排序
+    Unify the selection of motifs to be displayed across various plots:
+    1) First, select the Top-K motifs by descending order of |mean_delta|
+    2) Within this Top-K set, sort by descending order of mean_delta
     """
     if df_motif is None or df_motif.empty:
         return []
 
     if topk is None or topk <= 0:
-        # 不限制数量，就全部 motif，直接按 mean_delta 从大到小排
+        # No quantity restrictions; include all motifs. Sort them directly by mean_delta in descending order.
         tmp = df_motif.copy()
         tmp = tmp.sort_values("mean_delta", ascending=False)
         return tmp["motif"].tolist()
@@ -224,24 +222,24 @@ def select_motifs_for_plot(df_motif: pd.DataFrame, topk: int):
             method="first", ascending=False
         )
     )
-    # 先按 rank_abs 取 Top-K
+    # First, retrieve the Top-K based on rank_abs.
     top = tmp.sort_values("rank_abs").head(topk)
-    # 在 Top-K 内按 mean_delta 从大到小排序，作为最终显示顺序
+    # Sort the Top-K entries in descending order by mean_delta to determine the final display sequence.
     top = top.sort_values("mean_delta", ascending=False)
     motifs = top["motif"].tolist()
     return motifs
 
 
-# ============== 主流程 ==============
+# ============== Main Process ==============
 def plot_motif_triptych_c1(df_motif: pd.DataFrame,
                            per_seq: pd.DataFrame,
                            df_pos: pd.DataFrame,
                            motifs_sorted,
                            out_dir: str):
-    """三联图版本1（采用方案 C1）：
-    (a) 左：水平条形图——每个 motif 的平均效应 + 95% CI（按 mean_delta 由正到负排序）
-    (b) 中：位置效应——每个 motif 一行，Δ vs 相对位置（12×1 折线小图阵）
-    (c) 右：箱线图 + 抖动点——每个 motif 的 per-sample Δ 分布（颜色与 (a)/(b) 对应）
+    """Triple-panel Figure Version 1 (using Scheme C1):
+    (a) Left: Horizontal bar chart—mean effect + 95% CI for each motif (sorted from positive to negative by mean_delta)
+    (b) Middle: Position effect—one row per motif, Δ vs. relative position (12×1 scatter plot grid)
+    (c) Right: Boxplot + jittered points — Per-sample Δ distribution for each motif (colors correspond to (a)/(b))
     """
     motifs_sorted = list(motifs_sorted) if motifs_sorted is not None else []
     if len(motifs_sorted) == 0:
@@ -249,31 +247,31 @@ def plot_motif_triptych_c1(df_motif: pd.DataFrame,
     if df_motif.empty or per_seq.empty or df_pos.empty:
         return
 
-    # 先按原来的 motifs_sorted 过滤一次，确保只保留你关心的 motif
+    # First filter once using the original motifs_sorted to ensure only the motifs you care about are retained.
     motifs_candidate = [m for m in motifs_sorted if m in df_motif["motif"].values]
     if not motifs_candidate:
         return
 
-    # 从 df_motif 里取出这些 motif，对应行，并按 mean_delta 从大到小排序
+    # Extract these motifs from df_motif, corresponding to their rows, and sort them in descending order by mean_delta.
     sub_motif = (
         df_motif[df_motif["motif"].isin(motifs_candidate)]
         .set_index("motif")
-        .loc[motifs_candidate]          # 按原 motifs_sorted 顺序取出
+        .loc[motifs_candidate]          # Retrieve in the original sorted order of motifs_sorted
         .reset_index()
     )
 
     if "mean_delta" not in sub_motif.columns:
-        print("[WARN] df_motif 中缺少 mean_delta 列，无法排序 motif")
+        print("[WARN] df_motif The mean_delta column is missing, preventing sorting. motif")
         return
 
     motifs = sub_motif["motif"].tolist()
 
-    # 颜色：Δ>0 橙色，Δ<0 绿色（panel1 / panel3 / panel2 散点共用）
+    # Color: Δ > 0 Orange, Δ < 0 Green (shared scatter plot for panel1 / panel3 / panel2)
     mu = sub_motif["mean_delta"].to_numpy(dtype=float)
     colors = np.where(mu >= 0, "#d95f02", "#1b9e77")
     color_map = {m: col for m, col in zip(motifs, colors)}
 
-    # -------- 为箱线图准备 per-sample Δ 数据（顺序与 motifs 一致） --------
+    # -------- Prepare per-sample Δ data for box plots (in the same order as the motifs) --------
     data_per_motif = []
     for m in motifs:
         vals = per_seq.loc[per_seq["motif"] == m, "delta"].to_numpy(dtype=float)
@@ -283,7 +281,7 @@ def plot_motif_triptych_c1(df_motif: pd.DataFrame,
         else:
             data_per_motif.append(vals)
 
-    # 箱线图 Y 轴范围：基于 per-sample Δ 的分位数
+    # Box Plot Y-axis Range: Percentiles based on per-sample Δ
     valid_arrays = [v for v in data_per_motif if np.isfinite(v).any()]
     if valid_arrays:
         all_vals = np.concatenate(valid_arrays)
@@ -294,22 +292,22 @@ def plot_motif_triptych_c1(df_motif: pd.DataFrame,
     else:
         y_lo, y_hi = -0.1, 0.1
 
-    # -------- 位置效应子图的 motif 列表（顺序与 motifs 一致） --------
+    # -------- List of motifs in the positional effect subgraph (in the same order as the motifs) --------
     motifs_pos = [m for m in motifs if m in df_pos["motif"].values]
     if not motifs_pos:
         return
     n_pos = len(motifs_pos)
 
-    # ===== 整体 figure：3 列，(a) 左, (b) 中, (c) 右 =====
+    # ===== Overall figure: 3 columns, (a) left, (b) center, (c) right =====
     fig = plt.figure(figsize=(16, 8))
     gs = gridspec.GridSpec(
         1, 3,
-        width_ratios=[1.1, 1.8, 1.3],   # 中间位置效应 panel 稍宽
+        width_ratios=[1.1, 1.8, 1.3],   # Center position effect panel slightly wider
         wspace=0.35,
         figure=fig
     )
 
-    # ---------- (a) 左：bar, motif mean Δ ----------
+    # ---------- (a) Left：bar, motif mean Δ ----------
     ax_bar = fig.add_subplot(gs[0, 0])
     idxs = np.arange(len(sub_motif))
     err = np.vstack([
@@ -321,7 +319,7 @@ def plot_motif_triptych_c1(df_motif: pd.DataFrame,
     for bar, col in zip(bars, colors):
         bar.set_color(col)
 
-    # y 轴标签：显著的加 *
+    # Y-axis label: Significant increase *
     labels = []
     for _, row in sub_motif.iterrows():
         label = row["motif"]
@@ -335,11 +333,11 @@ def plot_motif_triptych_c1(df_motif: pd.DataFrame,
     ax_bar.grid(axis="x", linestyle="--", alpha=0.4)
     ax_bar.set_xlabel("Mean Δprediction (mut - base)")
     # ax_bar.set_title("Mean effect per motif")
-    ax_bar.invert_yaxis()  # 索引 0 的 motif（mean_delta 最大）在最上方
+    ax_bar.invert_yaxis()  # The motif with index 0 (maximum mean_delta) is at the top.
     ax_bar.text(0.02, 0.98, "(a)", transform=ax_bar.transAxes,
                 ha="left", va="top", fontsize=18, fontweight="bold")
 
-    # ---------- (c) 右：箱线图 + 抖动点 ----------
+    # ---------- (c) Right: Box plot + outliers ----------
     ax_box = fig.add_subplot(gs[0, 2])
     positions = np.arange(1, len(motifs) + 1)
 
@@ -352,17 +350,17 @@ def plot_motif_triptych_c1(df_motif: pd.DataFrame,
         patch_artist=True,
     )
 
-    # 给 box 上色（与 panel1 颜色一致）
+    # Color the box (matching the color of panel1)
     for box, m in zip(bp["boxes"], motifs):
         box.set_facecolor(color_map.get(m, "#cccccc"))
         box.set_edgecolor("black")
         box.set_alpha(0.7)
 
-    # 中位线加粗
+    # Median line thickened
     for med in bp["medians"]:
         med.set_linewidth(2.0)
 
-    # 抖动散点：颜色与该 motif 的条形/位置线颜色一致
+    # Jitter scatter: Color matches the bar/position line color of this motif
     max_points = 400
     rng = np.random.RandomState(20251120)
     for pos, m, vals in zip(positions, motifs, data_per_motif):
@@ -394,7 +392,7 @@ def plot_motif_triptych_c1(df_motif: pd.DataFrame,
     ax_box.text(0.02, 0.98, "(c)", transform=ax_box.transAxes,
                 ha="left", va="top", fontsize=18, fontweight="bold")
 
-    # ---------- (b) 中：位置效应，motif 每行一条折线 ----------
+    # ---------- (b) Position effect, motif: one broken line per row ----------
     nrows_pos = n_pos
     gs_pos = gridspec.GridSpecFromSubplotSpec(
         nrows_pos, 1, subplot_spec=gs[0, 1], hspace=0.05
@@ -422,17 +420,17 @@ def plot_motif_triptych_c1(df_motif: pd.DataFrame,
         ax.axhline(0, color="k", lw=0.8)
         ax.set_xlim(0, 1)
 
-        # 最底一行画 x 轴标签
+        # Draw the x-axis labels on the bottom row
         if i == nrows_pos - 1:
             ax.set_xlabel("Relative position in 3'UTR")
         else:
             ax.set_xticklabels([])
 
-        # y 轴只留 0 这一条刻度线，不显示数字
+        # The y-axis displays only the 0 tick mark without numerical labels.
         ax.set_yticks([0])
         ax.set_yticklabels([])
 
-        # 在最上面一行加 panel (b) 标记
+        # Add the label "panel (b)" to the topmost row.
         if i == 0:
             ax.text(0.02, 0.98, "(b)", transform=ax.transAxes,
                     ha="left", va="top", fontsize=18, fontweight="bold")
@@ -447,10 +445,10 @@ def plot_motif_triptych_c2(df_motif: pd.DataFrame,
                            df_pos: pd.DataFrame,
                            motifs_sorted,
                            out_dir: str):
-    """三联图版本2：位置效应用 motif×position 的热图 (C2)
-    (a) 水平条形图：每个 motif 的平均效应 + 95% CI
-    (b) 箱线图 + 抖动点：每个 motif 的 per-sample Δ 分布
-    (c) 位置效应：motif×position_bin 的矩阵热图
+    """Triple-Plot Version 2: Position Effects with Motif×Position Heatmap (C2)
+(a) Horizontal bar chart: Mean effect + 95% CI for each motif
+(b) Boxplot + jittered points: Per-sample Δ distribution for each motif
+(c) Position effects: Matrix heatmap of motif×position_bin
     """
     motifs_sorted = list(motifs_sorted) if motifs_sorted is not None else []
     if len(motifs_sorted) == 0:
@@ -464,12 +462,12 @@ def plot_motif_triptych_c2(df_motif: pd.DataFrame,
 
     sub_motif = df_motif[df_motif["motif"].isin(motifs)].set_index("motif").loc[motifs].reset_index()
 
-    # 颜色映射（与 C1 一致）
+    # Color mapping (consistent with C1)
     mu = sub_motif["mean_delta"].to_numpy(dtype=float)
     colors = np.where(mu >= 0, "#d95f02", "#1b9e77")
     color_map = {m: col for m, col in zip(sub_motif["motif"], colors)}
 
-    # per-sample Δ 分布
+    # per-sample Δ Distribution
     data_per_motif = []
     for m in motifs:
         vals = per_seq.loc[per_seq["motif"] == m, "delta"].to_numpy(dtype=float)
@@ -488,16 +486,16 @@ def plot_motif_triptych_c2(df_motif: pd.DataFrame,
         y_lo = q_lo - 0.1 * span
         y_hi = q_hi + 0.1 * span
 
-    # 位置效应热图数据：按 motif×pos_bin pivot
+    # Location Effect Heatmap Data: By motif×pos_bin pivot
     df_heat = df_pos[df_pos["motif"].isin(motifs)].copy()
     if df_heat.empty:
         return
-    # 保证 pos_bin 数值型且有序
+    # Ensure pos_bin is numeric and ordered.
     if "pos_bin" in df_heat.columns:
         df_heat["pos_bin"] = df_heat["pos_bin"].astype(int)
         bins_sorted = sorted(df_heat["pos_bin"].unique())
     else:
-        # 如果没有 pos_bin，则按 pos_rel_center 排序并人为编号
+        # If pos_bin is not available, sort by pos_rel_center and assign manual numbers.
         df_heat = df_heat.sort_values("pos_rel_center")
         df_heat["pos_bin"] = pd.factorize(df_heat["pos_rel_center"])[0]
         bins_sorted = sorted(df_heat["pos_bin"].unique())
@@ -509,7 +507,7 @@ def plot_motif_triptych_c2(df_motif: pd.DataFrame,
     )
     heat_vals = heat_table.to_numpy(dtype=float)
 
-    # 对称色轴
+    # Symmetrical Color Axis
     if np.all(np.isnan(heat_vals)):
         v_max = 1.0
     else:
@@ -587,7 +585,7 @@ def plot_motif_triptych_c2(df_motif: pd.DataFrame,
     ax_box.text(0.02, 0.98, "(b)", transform=ax_box.transAxes,
                 ha="left", va="top", fontsize=18, fontweight="bold")
 
-    # ---------- (c2) 位置效应热图 ----------
+    # ---------- (c2) Position Effect Heat Map ----------
     ax_heat = fig.add_subplot(gs[0, 2])
     im = ax_heat.imshow(
         heat_vals,
@@ -603,7 +601,7 @@ def plot_motif_triptych_c2(df_motif: pd.DataFrame,
     ax_heat.set_xlabel("Relative position in 3'UTR")
     ax_heat.set_title("Position effect (per motif)")
 
-    # x 轴 tick: 映射到 0–1 相对位置
+    # x-axis tick: mapped to relative positions between 0 and 1
     n_bins = heat_vals.shape[1]
     if n_bins > 1:
         xticks = np.linspace(0, n_bins - 1, 5)
@@ -628,9 +626,9 @@ def plot_motif_tail_prop(df_motif: pd.DataFrame,
                          out_dir: str,
                          title_suffix: str = ""):
     """
-    画 motif 尾部响应比例条形图：
-    - 每个 motif 两根 bar：Δt/t0 > +BIG_FRAC_THRESH 和 Δt/t0 < -BIG_FRAC_THRESH 的比例
-    - 上半部分 = 正向强响应比例，下半部分 = 负向强响应比例
+    Plot motif tail response proportion bar chart:
+    - Two bars per motif: Proportion of Δt/t0 > +BIG_FRAC_THRESH and Δt/t0 < -BIG_FRAC_THRESH
+    - Upper half = Positive strong response proportion, lower half = Negative strong response proportion
     """
     motifs_focus = list(motifs_focus) if motifs_focus is not None else []
     if df_motif is None or df_motif.empty or len(motifs_focus) == 0:
@@ -640,7 +638,7 @@ def plot_motif_tail_prop(df_motif: pd.DataFrame,
     if df_sub.empty:
         return
 
-    # 保证顺序与 motifs_focus 一致
+    # Ensure the sequence matches motifs_focus.
     df_sub = df_sub.set_index("motif").loc[motifs_focus].reset_index()
 
     gt = df_sub["prop_frac_gt_big"].to_numpy(dtype=float)
@@ -666,7 +664,7 @@ def plot_motif_tail_prop(df_motif: pd.DataFrame,
     else:
         ax.set_title(base_title)
 
-    # 对称 y 轴范围
+    # Symmetric y-axis range
     both = np.concatenate([gt, lt]) if len(gt) > 0 else np.array([0.0])
     max_val = float(np.nanmax(np.abs(both)))
     if max_val <= 0 or not np.isfinite(max_val):
@@ -681,8 +679,8 @@ def plot_motif_t0bin_heatmap(df_motif_t0: pd.DataFrame,
                              motifs_focus,
                              out_dir: str):
     """
-    画 motif × t0_bin 的 mean_frac_delta 热图。
-    行：motif；列：t0_bin（T0_bin1/2/3...）；颜色：mean_frac_delta。
+    Plot the mean_frac_delta heatmap for motif × t0_bin.
+    Rows: motif; Columns: t0_bin (T0_bin1/2/3...); Colors: mean_frac_delta.
     """
     motifs_focus = list(motifs_focus) if motifs_focus is not None else []
     if df_motif_t0 is None or df_motif_t0.empty or len(motifs_focus) == 0:
@@ -692,7 +690,7 @@ def plot_motif_t0bin_heatmap(df_motif_t0: pd.DataFrame,
     if df_sub.empty:
         return
 
-    # 统一 bin 顺序
+    # Unify bin order
     df_sub["t0_bin"] = df_sub["t0_bin"].astype(str)
     bins_order = sorted(df_sub["t0_bin"].unique())
 
@@ -705,7 +703,7 @@ def plot_motif_t0bin_heatmap(df_motif_t0: pd.DataFrame,
     fig_height = 0.4 * len(motifs_focus) + 1.8
     fig, ax = plt.subplots(figsize=(4.5, fig_height))
 
-    # 对称色轴
+    # Symmetrical Color Axis
     if np.isfinite(data).any():
         vmax = float(np.nanmax(np.abs(data)))
     else:
@@ -736,18 +734,18 @@ def plot_motif_tail_and_heatmap(
     out_dir: str,
 ):
     """
-    (a) 上：motif 尾部正/负比例（竖直条形图，motif 在 x 轴）
-    (b) 下：motif × t0_bin heatmap（motif 在 x 轴，t0_bin 在 y 轴）
+    (a) Top: Positive/negative ratio of motif tails (vertical bar chart, motifs on x-axis)
+    (b) Bottom: Motif × t0_bin heatmap (motifs on x-axis, t0_bin on y-axis)
 
-    motifs：已经排好顺序的 motif 列表（比如 motifs_sorted）
-    上下两个子图共用同一套 x 轴刻度和顺序。
+    motifs: A sorted list of motifs (e.g., motifs_sorted)
+    Both subplots share the same x-axis scale and order.
     """
     if df_motif is None or df_motif.empty:
         return
     if df_motif_t0 is None or df_motif_t0.empty:
         return
 
-    # 只保留在两个 DataFrame 中都存在的 motif，顺序按照传入 motifs
+    # Only retain motifs present in both DataFrames, sorted according to the input motifs.
     motifs = [
         m for m in motifs
         if (m in df_motif["motif"].values) and (m in df_motif_t0["motif"].values)
@@ -755,17 +753,17 @@ def plot_motif_tail_and_heatmap(
     if not motifs:
         return
 
-    # ---------- 上图：tail 数据 ----------
+    # ---------- Above image: tail data ----------
     sub_tail = (
         df_motif[df_motif["motif"].isin(motifs)]
         .set_index("motif")
-        .loc[motifs]  # 保证顺序一致
+        .loc[motifs]  # Ensure consistent order
         .reset_index()
     )
     gt = sub_tail["prop_frac_gt_big"].to_numpy(float)
     lt = sub_tail["prop_frac_lt_-0.1"].to_numpy(float)
 
-    # ---------- 下图：heatmap 数据 ----------
+    # ---------- Figure below: Heatmap data ----------
     sub_t0 = df_motif_t0[df_motif_t0["motif"].isin(motifs)].copy()
     if sub_t0.empty:
         return
@@ -773,7 +771,7 @@ def plot_motif_tail_and_heatmap(
     sub_t0["t0_bin"] = sub_t0["t0_bin"].astype(str)
     bins_order = sorted(sub_t0["t0_bin"].unique())
 
-    # pivot：行 = t0_bin，列 = motif  → heatmap 横轴就是 motif
+    # pivot: rows = t0_bin, columns = motif → heatmap the horizontal axis is the motif
     df_piv = (
         sub_t0
         .pivot(index="t0_bin", columns="motif", values="mean_frac_delta")
@@ -781,31 +779,31 @@ def plot_motif_tail_and_heatmap(
     )
     heat = df_piv.to_numpy(float)
 
-    # ---------- 画图：上下两个子图，共用 x 轴 ----------
+    # ---------- Plot: Two subplots sharing the same x-axis ----------
     n = len(motifs)
-    fig_width = max(8.0, 0.6 * n + 2.0)   # 根据 motif 数量自动放宽
+    fig_width = max(8.0, 0.6 * n + 2.0)   # Automatically relax based on motif count
     fig_height = 6.5
 
     fig, (ax_top, ax_bottom) = plt.subplots(
         2, 1,
         figsize=(fig_width, fig_height),
-        sharex=True,  # 共用 x 轴
+        sharex=True,  # Shared x-axis
         gridspec_kw={"height_ratios": [1.0, 1.2]}
     )
 
-    # ====== (a) 上：tail 竖直条形图（同一 x，一上一下） ======
+    # ====== (a) Top: Tail vertical bar chart (same x-axis, one above the other) ======
     x = np.arange(n)
-    bar_w = 0.45  # 可以稍微宽一点
+    bar_w = 0.45  # It can be a bit wider.
 
-    # 正向：Δt/t0 > +10%，向上
+    # Positive: Δt/t0 > +10%, up
     ax_top.bar(x, gt, width=bar_w,
                color="#d95f02", alpha=0.9, label="Δt/t0 > +10%")
 
-    # 负向：Δt/t0 < -10%，向下（用负高度表示）
+    # Negative: Δt/t0 < -10%, downward (indicated by negative height)
     ax_top.bar(x, -lt, width=bar_w,
                color="#1b9e77", alpha=0.9, label="Δt/t0 < -10%")
 
-    # 共享 x 轴刻度位置，但上图不显示文字，只在下图显示
+    # Share the x-axis tick mark position, but do not display text in the upper figure; display it only in the lower figure.
     ax_top.set_xticks(x)
     ax_top.set_xticklabels([])
 
@@ -813,7 +811,7 @@ def plot_motif_tail_and_heatmap(
 
     # ax_top.set_ylabel("Fraction of sequences")
 
-    # y 轴不对称：0 线稍微靠下
+    # Y-axis asymmetry: The zero line is slightly offset downward.
     both = np.concatenate([gt, lt]) if len(gt) else np.array([0.0])
     max_val = float(np.nanmax(both)) if np.isfinite(both).any() else 0.1
     if max_val <= 0 or not np.isfinite(max_val):
@@ -825,7 +823,7 @@ def plot_motif_tail_and_heatmap(
 
     ax_top.legend(loc="upper right", fontsize=9, frameon=False)
 
-    # 在上子图加 (a)
+    # Add to the subgraph (a)
     ax_top.text(
         0.03, 0.91,
         "(a)",
@@ -836,7 +834,7 @@ def plot_motif_tail_and_heatmap(
         ha="right",
     )
 
-    # ====== (b) 下：motif × t0_bin heatmap ======
+    # ====== (b) Down：motif × t0_bin heatmap ======
     if np.isfinite(heat).any():
         vmax = float(np.nanmax(np.abs(heat)))
     else:
@@ -856,9 +854,9 @@ def plot_motif_tail_and_heatmap(
     # ax_bottom.set_xticklabels(motifs, rotation=45, ha="right")
     labels = ax_bottom.set_xticklabels(motifs, rotation=45, ha="right")
 
-    # 对每个标签应用偏移
+    # Apply offset to each label
     for label in labels:
-        # 创建偏移变换：x方向偏移2点，y方向不变
+        # Create an offset transformation: Offset 2 points in the x-direction, leaving the y-direction unchanged.
         offset = matplotlib.transforms.ScaledTranslation(10 / 72, 0, fig.dpi_scale_trans)
         label.set_transform(label.get_transform() + offset)
 
@@ -874,11 +872,10 @@ def plot_motif_tail_and_heatmap(
     ax_bottom.set_xlabel("Motif")
     # ax_bottom.set_ylabel("Baseline half-life bin")
 
-    # ✅ colorbar 只绑定 bottom 轴，大小和原来一样
+    # The colorbar is only anchored to the bottom axis, with the same size as before.
     cbar = fig.colorbar(im, ax=ax_bottom, fraction=0.046, pad=0.04)
     # cbar.set_label("mean_frac_delta (Δt/t0)")
 
-    # 在下子图加 (b)
     ax_bottom.text(
         0.03, 0.92,
         "(b)",
@@ -889,13 +886,8 @@ def plot_motif_tail_and_heatmap(
         ha="right",
     )
 
-    # ✅ 统一 x 轴范围，确保柱子和色块列中心重合
     ax_bottom.set_xlim(-0.5, n - 0.5)
-
-    # 先让 tight_layout 把上下的高度和间距调好
     fig.tight_layout()
-
-    # ✅ 用 bottom 轴的左右边界去“修正” top 轴的宽度，让框线完全对齐
     pos_bottom = ax_bottom.get_position()
     pos_top = ax_top.get_position()
     ax_top.set_position([pos_bottom.x0, pos_top.y0, pos_bottom.width, pos_top.height])
@@ -903,22 +895,18 @@ def plot_motif_tail_and_heatmap(
     savefig(fig, os.path.join(out_dir, "motif_tail_and_t0bin_heatmap"))
     plt.close(fig)
 
-
-
-
-
 def plot_motif_t0bin_bars_detail(df_motif_t0: pd.DataFrame,
                                  motifs_detail,
                                  out_dir: str):
     """
-    为若干代表性 motif（如 CCUAA/UUAUUU/CCCCC/GCGCGC）画 t0_bin 分层柱状图。
-    每个 motif 一个子图，x 轴是 t0_bin，y 轴是 mean_frac_delta。
+    Plot t0_bin hierarchical bar charts for several representative motifs (e.g., CCUAA/UUAUUU/CCCCC/GCGCGC).
+Each motif is displayed as a subplot, with the x-axis representing t0_bin and the y-axis representing mean_frac_delta.
     """
     motifs_detail = [m for m in (motifs_detail or [])]
     if df_motif_t0 is None or df_motif_t0.empty or len(motifs_detail) == 0:
         return
 
-    # 过滤出确实存在的 motif
+    # Filter out motifs that actually exist
     motifs_exist = [m for m in motifs_detail if m in df_motif_t0["motif"].values]
     if len(motifs_exist) == 0:
         return
@@ -956,7 +944,7 @@ def plot_motif_t0bin_bars_detail(df_motif_t0: pd.DataFrame,
         ax.set_ylabel("mean Δt/t0")
         ax.set_title(motif)
 
-    # 隐藏多余子图
+    # Hide redundant subgraphs
     for j in range(i + 1, nrows * ncols):
         r, c = divmod(j, ncols)
         axes[r][c].axis("off")
@@ -973,9 +961,9 @@ def main():
     required_cols = {"sample_idx","motif","new","pos","base_pred","mut_pred","delta","sequence"}
     missing = required_cols - set(df.columns)
     if missing:
-        raise ValueError(f"缺少必要列: {missing}")
+        raise ValueError(f"Missing required columns: {missing}")
 
-    # 统一类型
+    # Unified Type
     df["sample_idx"] = df["sample_idx"].astype(int)
     for c in ["motif","new","sequence"]:
         df[c] = df[c].astype(str)
@@ -983,13 +971,13 @@ def main():
     for c in ["base_pred","mut_pred","delta"]:
         df[c] = df[c].astype(float)
 
-    # 相对位置（motif中心/序列长度）
+    # Relative Position (motif center/sequence length)
     df["seq_len"] = df["sequence"].str.len()
     df["motif_len"] = df["motif"].str.len()
     df["pos_rel"] = (df["pos"] + df["motif_len"]/2.0) / df["seq_len"]
 
-    # -------- 每样本汇总（防止同序列多位点放大权重）--------
-    # 这里额外保留 sequence，方便后面如果 residuals.csv 没有 sample_idx 时，改用 sequence 对齐
+    # -------- Aggregate per sample (to prevent amplified weights at multiple loci within the same sequence)--------
+    # This is an extra sequence, so that if residuals.csv doesn't have a sample_idx, it can be aligned with sequence instead.
     per_seq = (
         df.groupby(["motif", "new", "sample_idx"], as_index=False)
         .agg(
@@ -1000,7 +988,7 @@ def main():
         )
     )
 
-    # （可选）合并 residual 信息，用于“预测较好”子集的分析
+    # (Optional) Merge residual information for analysis of the "better-predicted" subset.
     residual_path = CFG.RESIDUALS_CSV.strip()
     if residual_path == "":
         residual_path = os.path.join(os.path.dirname(CFG.MUTATION_CSV), "residuals.csv")
@@ -1011,7 +999,7 @@ def main():
         try:
             df_resid = pd.read_csv(residual_path)
 
-            # 先确定 residual 列：优先用现成 residual，其次 true/pred 差值
+            # First determine the residual column: Prioritize using existing residuals, then use the difference between true and predicted values.
             resid_col = None
             if "residual" in df_resid.columns:
                 resid_col = "residual"
@@ -1021,16 +1009,16 @@ def main():
 
             if resid_col is None:
                 print(
-                    f"[WARN] residuals 文件 {residual_path} 中找不到 residual 或 true/pred 列，跳过 residual 相关分析。")
+                    f"[WARN] residuals Document {residual_path} If the residual or true/pred column is not found, skip residual-related analysis.")
             else:
-                # 优先方案：按 sample_idx 对齐
+                # Preferred approach: Align by sample_idx
                 if "sample_idx" in df_resid.columns and "sample_idx" in per_seq.columns:
                     df_resid["sample_idx"] = df_resid["sample_idx"].astype(int)
                     df_resid_small = df_resid[["sample_idx", "residual"]].drop_duplicates(subset="sample_idx")
                     per_seq = per_seq.merge(df_resid_small, on="sample_idx", how="left")
                     have_residual = True
 
-                # 备选方案：如果没有 sample_idx，但 residuals.csv 和 per_seq 里都有 sequence，就按 sequence 对齐
+                # Alternative: if there is no sample_idx, but there is a sequence in both residuals.csv and per_seq, then align by sequence
                 elif "sequence" in df_resid.columns and "sequence" in per_seq.columns:
                     df_resid["sequence"] = df_resid["sequence"].astype(str)
                     df_resid_small = df_resid[["sequence", "residual"]].drop_duplicates(subset="sequence")
@@ -1038,20 +1026,20 @@ def main():
                     have_residual = True
                 else:
                     print(
-                        f"[WARN] residuals 文件 {residual_path} 中既没有 sample_idx，"
-                        f"也没有能与 per_seq 对齐的 sequence 列，跳过 residual 相关分析。"
+                        f"[WARN] residuals Document {residual_path} There is no sample_idx，"
+                        f"There is also no sequence column that can be aligned with per_seq, skipping the residual correlation analysis."
                     )
 
-                # 如果成功合并 residual，就顺便算 abs_residual
+                # If the residuals merge successfully, calculate the absolute residuals as well.
                 if have_residual:
                     per_seq["abs_residual"] = per_seq["residual"].abs()
 
         except Exception as e:
-            print(f"[WARN] 读取 residuals 文件 {residual_path} 失败：{e}")
+            print(f"[WARN] Read residuals Document {residual_path} Failure：{e}")
     else:
-        print(f"[INFO] 未找到 residuals 文件 {residual_path}，将跳过 residual 相关子集分析。")
+        print(f"[INFO] Not found residuals Document {residual_path},The residual-related subset analysis will be skipped.")
 
-    # 基线半衰期分层（用 base_pred 的分位数等分）
+    # Baseline half-life stratification (using quantiles of base_pred)
     have_t0_bins = False
     if per_seq["base_pred"].notna().any():
         try:
@@ -1060,7 +1048,7 @@ def main():
             if base_vals.size >= CFG.N_T0_BINS:
                 q = np.linspace(0.0, 1.0, CFG.N_T0_BINS + 1)
                 edges = np.quantile(base_vals, q)
-                # 防止边界完全相同 → 稍微扩展
+                # Prevent identical boundaries → Slightly expand
                 edges[0] = -np.inf
                 edges[-1] = np.inf
                 labels = [f"T0_bin{i+1}" for i in range(CFG.N_T0_BINS)]
@@ -1068,11 +1056,11 @@ def main():
                                            labels=labels, include_lowest=True)
                 have_t0_bins = True
             else:
-                print("[WARN] 有效 base_pred 样本数太少，无法分成 T0 bins，跳过基线分层分析。")
+                print("[WARN] The number of valid base_pred samples is too small to partition into T0 bins; baseline stratification analysis is skipped.")
         except Exception as e:
-            print(f"[WARN] 计算基线半衰期分层失败：{e}")
+            print(f"[WARN] Calculation of baseline half-life stratification failed：{e}")
 
-    # ====== 统计：按 (motif,new) ======
+    # ====== Statistics: By (motif, new) ======
     rows_pair = []
     for (m,n), sub in per_seq.groupby(["motif","new"]):
         stats = compute_effect_stats(sub)
@@ -1086,7 +1074,7 @@ def main():
         df_pair["fdr"] = bh_fdr(df_pair["wilcoxon_p"].values)
     df_pair = df_pair.sort_values(["fdr","mean_delta"]).reset_index(drop=True)
 
-    # ====== 统计：按 motif（跨 replacement 合并）======
+    # ====== Statistics: by motif (merged across replacements) ======
     rows_m = []
     for m, sub in per_seq.groupby("motif"):
         stats = compute_effect_stats(sub)
@@ -1099,7 +1087,7 @@ def main():
         df_motif["fdr"] = bh_fdr(df_motif["wilcoxon_p"].values)
     df_motif = df_motif.sort_values(["fdr","mean_delta"]).reset_index(drop=True)
 
-    # ====== 基线半衰期分层统计（按 t0_bin）======
+    # ====== Baseline Half-Life Stratified Statistics (by t0_bin) ======
     df_pair_t0 = pd.DataFrame()
     df_motif_t0 = pd.DataFrame()
     if have_t0_bins and "t0_bin" in per_seq.columns:
@@ -1126,7 +1114,7 @@ def main():
             })
         df_motif_t0 = pd.DataFrame(rows_m_t0)
 
-    # ====== residual 较小子集统计（预测较好样本）======
+    # ====== residual Subset Statistics (Predicting Better Samples)======
     df_pair_good = pd.DataFrame()
     df_motif_good = pd.DataFrame()
     if have_residual and CFG.USE_RESIDUAL_FILTER and "abs_residual" in per_seq.columns:
@@ -1163,9 +1151,9 @@ def main():
                 if not df_motif_good.empty:
                     df_motif_good["fdr"] = bh_fdr(df_motif_good["wilcoxon_p"].values)
         else:
-            print("[WARN] abs_residual 中没有有效数值，跳过 residual 子集统计。")
+            print("[WARN] No valid values found in abs_residual; skipping residual subset statistics.")
 
-    # ====== 位置效应（按位点，分箱）======
+    # ====== Position Effect (By Site, Grouped)======
     pos_bins = np.linspace(0, 1, CFG.N_POS_BINS+1)
     df["pos_bin"] = pd.cut(df["pos_rel"], bins=pos_bins, labels=False, include_lowest=True)
     pos_rows = []
@@ -1185,7 +1173,7 @@ def main():
             })
     df_pos = pd.DataFrame(pos_rows).sort_values(["motif","pos_bin"]).reset_index(drop=True)
 
-    # ====== 导出 CSV ======
+    # ====== Export CSV ======
     out_pair = os.path.join(CFG.OUT_DIR, "mutation_stats_by_motif_new.csv")
     out_motif = os.path.join(CFG.OUT_DIR, "mutation_stats_by_motif.csv")
     out_pos = os.path.join(CFG.OUT_DIR, "mutation_position_effect.csv")
@@ -1209,28 +1197,28 @@ def main():
         df_motif_good.to_csv(out_motif_good, index=False)
 
 
-    # ====== 作图 ======
-    # 统一选出将要在各类图中展示的 motif 列表（长度由 CFG.TOPK 控制）
+    # ====== Plotting ======
+    # Unify the selection of motifs to be displayed in various plots (length controlled by CFG.TOPK)
     motifs_sorted = select_motifs_for_plot(df_motif, CFG.TOPK)
 
-    # 0a) motif 尾部响应比例图（优先使用 goodfit 子集）
+    # 0a) motif Tail Response Ratio Chart (Prioritize goodfit Subset)
     df_for_tail = df_motif_good if not df_motif_good.empty else df_motif
     if df_for_tail is not None and not df_for_tail.empty and len(motifs_sorted) > 0:
-        # 只保留在 df_for_tail 里确实有统计的那些 motif
+        # Only retain motifs that are indeed statistically significant in df_for_tail.
         motifs_for_tail = [m for m in motifs_sorted if m in df_for_tail["motif"].values]
         if len(motifs_for_tail) > 0:
-            print("[INFO] 绘制 motif_tail_prop 图，使用的 DataFrame：",
-                  "goodfit 子集" if df_for_tail is df_motif_good else "全部样本")
+            print("[INFO] Plot the motif_tail_prop graph using the following DataFrame:",
+                  "goodfit subset" if df_for_tail is df_motif_good else "All samples")
             plot_motif_tail_prop(df_for_tail, motifs_for_tail, CFG.OUT_DIR)
 
-    # 0b) motif×t0_bin 热图 + 代表 motif 的 t0 分层柱状图
+    # 0b) motif×t0_bin Heatmap + t0-based hierarchical bar chart representing motif
     if df_motif_t0 is not None and not df_motif_t0.empty and len(motifs_sorted) > 0:
-        # 只保留在 t0 分层统计里存在的 motif，顺序仍按 motifs_sorted
+        # Only retain motifs present in the t0 stratified statistics, maintaining the order specified in motifs_sorted.
         motifs_for_t0 = [m for m in motifs_sorted if m in df_motif_t0["motif"].values]
         if len(motifs_for_t0) > 0:
             plot_motif_t0bin_heatmap(df_motif_t0, motifs_for_t0, CFG.OUT_DIR)
 
-        # 详细柱状图仍然可以只挑 CCUAA/UUAUUU/CCCCC/GCGCGC 中既在 motifs_for_t0 又有统计的
+        # Detailed bar charts can still be generated by selecting only CCUAA/UUAUUU/CCCCC/GCGCGC sequences that appear in both motifs_for_t0 and the statistical data.
         motifs_detail = [
             m for m in ["CCUAA", "UUAUUU", "CCCCC", "GCGCGC"]
             if m in motifs_for_t0
@@ -1239,7 +1227,7 @@ def main():
             plot_motif_t0bin_bars_detail(df_motif_t0, motifs_detail, CFG.OUT_DIR)
 
 
-    # 0c) 组合图：左 tail，右 t0_bin 热图
+    # 0c) Combined Chart: Left tail, Right t0_bin Heatmap
     if (df_motif is not None and not df_motif.empty and
         df_motif_t0 is not None and not df_motif_t0.empty and
         len(motifs_sorted) > 0):
@@ -1258,29 +1246,29 @@ def main():
             )
 
 
-    # 1) Top-K 横向条形图（按 motif 合并，含95%CI，区分正负Δ）
+    # 1) Top-K Horizontal Bar Chart (Motif-merged, with 95% CI, distinguishing positive and negative Δ)
     if len(motifs_sorted) > 0:
         sub = df_motif[df_motif["motif"].isin(motifs_sorted)].copy()
         sub = sub.set_index("motif").loc[motifs_sorted].reset_index()
 
-        # 根据 mean_delta 正负设置颜色
+        # Set colors based on the positive or negative value of mean_delta
         mu = sub["mean_delta"].values
         lo = sub["ci95_low_delta"].values
         hi = sub["ci95_high_delta"].values
         err = np.vstack([mu - lo, hi - mu])
-        colors = np.where(mu >= 0, "#d95f02", "#1b9e77")  # Δ>0 橙色，Δ<0 绿色
+        colors = np.where(mu >= 0, "#d95f02", "#1b9e77")  # Δ>0 Orange, Δ<0 Green
 
-        # 画图
+        # Draw
         fig_height = 0.45 * len(sub) + 1.5
         fig, ax = plt.subplots(figsize=(7, fig_height))
         y = np.arange(len(sub))
         bars = ax.barh(y, mu, xerr=err, align="center", alpha=0.9)
 
-        # 给每个 bar 上色
+        # Color each bar
         for bar, col in zip(bars, colors):
             bar.set_color(col)
 
-        # y 轴标签：显著的加 *
+        # Y-axis label: Significant increase *
         labels = []
         for _, row in sub.iterrows():
             label = row["motif"]
@@ -1295,13 +1283,13 @@ def main():
         ax.set_xlabel("Mean Δprediction (mut - base)")
         ax.set_title(f"Top-{CFG.TOPK} motifs by |Δ| (per-sample mean, 95% CI)")
 
-        # 让 |Δ| 最大的在最上面（更符合阅读习惯）
+        # Place the largest |Δ| at the top (more in line with reading habits)
         ax.invert_yaxis()
 
         fig.tight_layout()
         savefig(fig, os.path.join(CFG.OUT_DIR, "bar_topk_motif_mean_delta"))
 
-    # 2) 箱线图（每样本 Δ）
+    # 2) Box plot (Δ per sample)
     if len(motifs_sorted) > 0:
         n = len(motifs_sorted)
         ncols = min(CFG.NCOLS, n)
@@ -1315,14 +1303,14 @@ def main():
             ax.axhline(0, color='k', lw=1)
             ax.set_ylabel("Δprediction (per sample)", labelpad=2, fontsize=16)
             ax.set_title(f"{m} (n={len(arr)})")
-        # 隐藏多余子图
+        # Hide redundant subgraphs
         for j in range(i+1, nrows*ncols):
             r, c = divmod(j, ncols)
             axes[r][c].axis("off")
         fig.tight_layout()
         savefig(fig, os.path.join(CFG.OUT_DIR, "box_per_motif_delta"))
 
-    # 3) 位置效应曲线（Δ vs 相对位置，去掉重复标签，防止子图文字重叠）
+    # 3) Position Effect Curve (Δ vs Relative Position, Remove Duplicate Labels to Prevent Subfigure Text Overlap)
     if not df_pos.empty:
         motifs_for_pos = motifs_sorted if len(motifs_sorted) > 0 else df_pos["motif"].unique().tolist()
         n = len(motifs_for_pos)
@@ -1347,14 +1335,14 @@ def main():
             ax.set_xlim(0, 1)
             ax.set_title(f"{m} (per-site, binned)", fontsize=18)
 
-            # 只在最底下一行画 x label
+            # Draw an x label only on the bottom row.
             if r == nrows - 1:
                 ax.set_xlabel("Relative position in 3'UTR", fontsize=16)
-            # 只在第一列画 y label
+            # Plot the y-label only in the first column
             if c == 0:
                 ax.set_ylabel("Δprediction (per site)", fontsize=16)
 
-        # 隐藏多余子图
+        # Hide redundant subgraphs
         total_plots = len(motifs_for_pos)
         for j in range(total_plots, nrows * ncols):
             r, c = divmod(j, ncols)
@@ -1363,15 +1351,15 @@ def main():
         fig.tight_layout()
         savefig(fig, os.path.join(CFG.OUT_DIR, "position_effect_per_motif"))
 
-        # 3b) 综合 motif 效应三联图（C1: 位置折线, C2: 位置热图）
+        # 3b) Comprehensive Motif Effect Triad (C1: Position Line Chart, C2: Position Heatmap)
     if len(motifs_sorted) > 0 and not df_pos.empty:
         try:
             plot_motif_triptych_c1(df_motif, per_seq, df_pos, motifs_sorted, CFG.OUT_DIR)
             plot_motif_triptych_c2(df_motif, per_seq, df_pos, motifs_sorted, CFG.OUT_DIR)
         except Exception as e:
-            print("[WARN] 生成 motif 三联图失败:", e)
+            print("[WARN] Failed to generate motif triplet diagram:", e)
 
-        # 4) 配对散点（base vs mut，按样本均值）
+        # 4) Pairwise Scatter Plot (Base vs. Mut, by Sample Mean)
     if len(motifs_sorted) > 0:
         for m in motifs_sorted:
             sub = per_seq[per_seq["motif"]==m].copy()
@@ -1388,7 +1376,7 @@ def main():
             ax.set_title(f"Paired scatter: {m}")
             savefig(fig, os.path.join(CFG.OUT_DIR, f"scatter_base_vs_mut_{m}"))
 
-    # 5) 火山图（按 motif 合并）
+    # 5) Volcano Plot (Grouped by Motif)
     if not df_motif.empty:
         sub = df_motif.copy()
         x = sub["mean_delta"].values
@@ -1401,13 +1389,13 @@ def main():
         ax.set_xlabel("Mean Δprediction (motif-merged)")
         ax.set_ylabel("-log10(FDR)" if "fdr" in sub.columns else "-log10(p)")
         ax.set_title("Volcano (by motif)")
-        # 标注 Top-K
+        # Top-K Annotation
         idx = np.argsort(np.abs(x))[-CFG.TOPK:]
         for i in idx:
             ax.text(x[i], y[i], sub["motif"].iloc[i], fontsize=9)
         savefig(fig, os.path.join(CFG.OUT_DIR, "volcano_by_motif"))
 
-    # ====== 写 summary.json ======
+    # ====== Write summary.json ======
     summary = {
         "input_csv": CFG.MUTATION_CSV,
         "n_rows": int(len(df)),
@@ -1448,7 +1436,7 @@ def main():
     with open(os.path.join(CFG.OUT_DIR, "summary.json"), "w") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
-    print("分析完成，结果已保存到：", CFG.OUT_DIR)
+    print("Analysis complete. Results saved to:", CFG.OUT_DIR)
 
 
 

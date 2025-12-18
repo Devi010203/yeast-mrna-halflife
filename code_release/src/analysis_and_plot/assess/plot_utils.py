@@ -1,31 +1,31 @@
 # plots/plot_utils.py
 # -*- coding: utf-8 -*-
 """
-通用绘图工具（论文风格）：
-- 统一样式（字号、线宽、网格、刻度方向）
-- 同时保存 PNG/SVG（dpi=400）
-- 安全读取 csv/json/jsonl
-- 常用的散点、校准、y=x 参考线等
+General Drawing Tools (Paper Style):
+- Uniform styling (font size, line width, grid, scale direction)
+- Simultaneous PNG/SVG saving (dpi=400)
+- Secure CSV/JSON/JSONL reading
+- Common reference lines: scatter plots, calibration, y=x
 """
 import os, json
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")  # 服务器/无显示环境
+matplotlib.use("Agg")  # Server/No Display Environment
 import matplotlib.pyplot as plt
 
-# ========= 样式与保存 =========
+# ========= Style and Save =========
 def set_paper_style():
     import matplotlib
     import matplotlib.pyplot as plt
     plt.rcParams.update({
         "font.family": "sans-serif",
-        # 选择常见的非斜体西文字体，并含中文的备选以防替换成斜体变体
+        # Select common non-italic Western fonts, with Chinese alternatives included to prevent substitution with italic variants.
         "font.sans-serif": ["DejaVu Sans", "Arial", "Liberation Sans", "Noto Sans CJK SC"],
-        "font.style": "normal",            # 关键：全局直立
-        "mathtext.default": "regular",     # 关键：数学文本用直立，而不是斜体变量
-        "mathtext.fontset": "dejavusans",  # 用 sans 字体系的直立体
+        "font.style": "normal",            # Key: Global Upright
+        "mathtext.default": "regular",     # Key: Use upright rather than italicized variables in mathematical text.
+        "mathtext.fontset": "dejavusans",  # Use upright sans-serif typefaces
         "axes.unicode_minus": False,
 
         "font.size": 9,
@@ -46,9 +46,9 @@ def set_paper_style():
 
 def _fisher_two_sided_p(a, b, c, d):
     """
-    2x2 Fisher 精确检验（双侧），基于超几何分布累积概率。
-    仅依赖 math.lgamma 实现 log 组合数，避免溢出。
-    表格：
+    2x2 Fisher Exact test (two-tailed), based on the cumulative hypergeometric distribution.
+    Implementing log combinator using only math.lgamma to avoid overflow.
+    Table:
               present  absent
       top        a       b
       bottom     c       d
@@ -66,18 +66,18 @@ def _fisher_two_sided_p(a, b, c, d):
             return -float("inf")
         return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
 
-    # 超几何 pmf：P(X=x | row1, col1, N)
+    # Hypergeometric PMF：P(X=x | row1, col1, N)
     def logpmf(x):
         return logC(col1, x) + logC(col2, row1 - x) - logC(N, row1)
 
-    # 观测到的概率
+    # Observed probability
     p_obs = math.exp(logpmf(a))
 
-    # x 的取值范围
+    # x The range of values
     x_min = max(0, row1 - col2)
     x_max = min(row1, col1)
 
-    # 双侧 p：把所有 P(X) ≤ P(obs) 的概率加起来
+    # Two-tailed p: Sum all probabilities where P(X) ≤ P(obs)
     p = 0.0
     for x in range(x_min, x_max + 1):
         px = math.exp(logpmf(x))
@@ -94,19 +94,19 @@ def ensure_dir(path_like) -> str:
 
 def savefig_dual(fig, out_basepath: str, dpi: int = 400):
     """
-    out_basepath 不带扩展名；同时保存为 *.png 和 *.svg
+    out_basepath Without file extension; save simultaneously as *.png and *.svg
     """
     fig.savefig(f"{out_basepath}.png", dpi=dpi, bbox_inches="tight")
     fig.savefig(f"{out_basepath}.svg", dpi=dpi, bbox_inches="tight")
 
-# ========= 读写 =========
+# ========= Reading and writing =========
 def safe_read_csv(fp: str) -> pd.DataFrame:
     return pd.read_csv(fp) if os.path.exists(fp) else pd.DataFrame()
 
 def read_json_or_jsonl(fp: str):
     """
-    同时兼容 JSON（list或dict）和 JSONL（每行一个对象）
-    返回：list（如是dict则包一层list）
+    Simultaneously compatible with JSON (list or dict) and JSONL (one object per line)
+Returns: list (if dict, wrapped in a list)
     """
     if not os.path.exists(fp):
         return []
@@ -115,7 +115,7 @@ def read_json_or_jsonl(fp: str):
             txt = f.read().strip()
             if not txt:
                 return []
-            # 简单判断 JSONL（逐行对象）
+            # Simple Determination of JSONL (Line-by-Line Object)
             if "\n" in txt and txt.lstrip().startswith("{"):
                 items = []
                 for line in txt.splitlines():
@@ -124,7 +124,7 @@ def read_json_or_jsonl(fp: str):
                         continue
                     items.append(json.loads(line))
                 return items
-            # 普通 JSON
+            # Ordinary JSON
             obj = json.loads(txt)
             if isinstance(obj, list):
                 return obj
@@ -132,10 +132,10 @@ def read_json_or_jsonl(fp: str):
     except Exception:
         return []
 
-# ========= 基础可视函数 =========
+# ========= Basic Visual Functions =========
 def identity_line(ax, data=None):
     """
-    自适应画 y=x 虚线；data 若给出（true/pred拼接），用于估计范围
+    Adaptive plot y=x dashed line; data if provided (concatenated true/pred), used for estimating range
     """
     if data is not None and len(data) > 0:
         vmin = float(np.nanmin(data))
@@ -147,7 +147,7 @@ def identity_line(ax, data=None):
 
 def scatter_true_pred(df: pd.DataFrame, title: str, out_basepath: str):
     """
-    需要列：true, pred
+    Required column：true, pred
     """
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.scatter(df["true"], df["pred"], s=6, alpha=0.6)
@@ -162,14 +162,14 @@ def scatter_true_pred(df: pd.DataFrame, title: str, out_basepath: str):
 
 def calibration_curve(df: pd.DataFrame, n_bins: int, out_basepath: str, title="Calibration (by predicted)"):
     """
-    使用按预测值等分的分箱，画校准曲线
-    需要列：true, pred
+    Use bins with equal predicted values to plot the calibration curve
+Required columns: true, pred
     """
     df = df[["true","pred"]].dropna().sort_values("pred").reset_index(drop=True)
     n = len(df)
     if n == 0:
         return
-    n_bins = max(3, min(n_bins, n))  # 合理限制
+    n_bins = max(3, min(n_bins, n))  # Reasonable restrictions
     bins = np.array_split(df, n_bins)
     x_bin = [b["pred"].mean() for b in bins]
     y_bin = [b["true"].mean() for b in bins]

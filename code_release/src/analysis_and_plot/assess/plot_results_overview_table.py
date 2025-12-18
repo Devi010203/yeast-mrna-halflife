@@ -1,13 +1,13 @@
 # plots/plot_results_overview_table.py
 # -*- coding: utf-8 -*-
 """
-生成“结果总览表”：
- - 逐折指标（MAE, RMSE, R², Pearson, Spearman, N）
- - 5折汇总：均值±SD
- - Pooled（把5折拼一起）指标
- - 测试集（final_test_predictions.csv）指标
-输出：result/plot/overview_table/<时间戳>/   （PNG+SVG, dpi=400）
-并导出：cv_metrics_per_fold.csv / cv_summary.csv / cv_pooled.csv / final_test_metrics.csv / overview_table.tex
+Generate "Result Overview Table":
+- Per-fold metrics (MAE, RMSE, R², Pearson, Spearman, N)
+- 5-fold summary: Mean ± SD
+- Pooled (combined across 5 folds) metrics
+- Test set (final_test_predictions.csv) metrics
+Output: result/plot/overview_table/<timestamp>/ (PNG+SVG, dpi=400)
+And export: cv_metrics_per_fold.csv / cv_summary.csv / cv_pooled.csv / final_test_metrics.csv / overview_table.tex
 """
 
 from pathlib import Path
@@ -21,7 +21,7 @@ from typing import Dict, Tuple
 import scienceplots
 plt.style.use('science')
 
-# ========== 在此手动填写 ==========
+# ========== Please fill in manually here ==========
 FOLD_FILES: Dict[str, str] = {
     "fold1": r"Path\to\val_predictions_fold1.csv",
     "fold2": r"Path\to\val_predictions_fold2.csv",
@@ -33,7 +33,6 @@ FINAL_TEST_FILE = r"Path\to\final_test_predictions.csv"
 DPI = 400
 # =================================
 
-# 全局非斜体字体
 matplotlib.rcParams.update({
     "font.family": "sans-serif",
     "font.sans-serif": ["DejaVu Sans", "Arial", "Liberation Sans", "Noto Sans CJK SC"],
@@ -70,7 +69,7 @@ def _auto_cols(df: pd.DataFrame) -> Tuple[str, str]:
             if any(k in cl for k in ["pred","hat","predict"]):
                 yp = c; break
     if yt is None or yp is None:
-        raise ValueError(f"无法识别真值/预测列：{list(df.columns)}")
+        raise ValueError(f"Unable to recognize true/predicted column:{list(df.columns)}")
     return yt, yp
 
 def _metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
@@ -85,7 +84,7 @@ def _metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     ssr = float(np.sum(resid**2))
     sst = float(np.sum((y_true - np.mean(y_true))**2))
     r2  = float(1.0 - ssr/sst) if sst > 1e-12 else np.nan
-    # 手写相关（免 scipy）
+    # Handwriting-related (without scipy)
     def _pearson(a, b):
         a = a - a.mean(); b = b - b.mean()
         den = np.sqrt((a*a).sum()) * np.sqrt((b*b).sum())
@@ -107,7 +106,7 @@ def _save_dual(fig, out_base: Path, dpi: int):
     plt.close(fig)
 
 def _latex_table(rows: list, col_names: list) -> str:
-    # 简单 tabular 生成（booktabs 风格）
+    # Simple tabular generation (booktabs style)
     def fmt(x):
         if isinstance(x, (int, np.integer)):
             return str(x)
@@ -127,16 +126,15 @@ def _latex_table(rows: list, col_names: list) -> str:
 
 def main():
     outdir = _ensure_outdir()
-    print("[输出目录]", outdir)
+    print("[Output Directory]", outdir)
 
-    # 逐折
     per_fold = []
     pooled_y_true = []
     pooled_y_pred = []
     for name, p in FOLD_FILES.items():
         fp = Path(p)
         if not fp.is_file():
-            print(f"[WARN] 未找到：{fp}，跳过 {name}")
+            print(f"[WARN] Not found: {fp}, skipping {name}")
             continue
         df = pd.read_csv(fp).dropna(how="all")
         yt, yp = _auto_cols(df)
@@ -146,11 +144,11 @@ def main():
         pooled_y_true.append(df[yt].values.astype(float))
         pooled_y_pred.append(df[yp].values.astype(float))
     if len(per_fold) == 0:
-        raise RuntimeError("没有有效的折文件，请在 FOLD_FILES 中填写有效路径。")
+        raise RuntimeError("No valid folder file exists. Please enter a valid path in FOLD_FILES.")
     df_fold = pd.DataFrame(per_fold)[["Split","N","MAE","RMSE","R2","Pearson","Spearman"]]
     df_fold.to_csv(outdir / "cv_metrics_per_fold.csv", index=False)
 
-    # 5折汇总：均值±SD
+    # 5Summary of Folds: Mean ± SD
     stats_cols = ["MAE","RMSE","R2","Pearson","Spearman"]
     mean_vals = df_fold[stats_cols].mean(numeric_only=True)
     std_vals  = df_fold[stats_cols].std(numeric_only=True, ddof=1)
@@ -159,21 +157,21 @@ def main():
                           "std":  [std_vals[c] for c in stats_cols]})
     df_cv.to_csv(outdir / "cv_summary.csv", index=False)
 
-    # Pooled（把 5 折拼接）
+    # Pooled
     ytp = np.concatenate(pooled_y_true); ypp = np.concatenate(pooled_y_pred)
     pooled = _metrics(ytp, ypp)
     pd.DataFrame([pooled]).to_csv(outdir / "cv_pooled.csv", index=False)
 
-    # 测试集
+    # Test set
     test_metrics = {}
     if FINAL_TEST_FILE and Path(FINAL_TEST_FILE).is_file():
         test_metrics = _read_metrics_from_csv(FINAL_TEST_FILE)
         pd.DataFrame([test_metrics]).to_csv(outdir / "final_test_metrics.csv", index=False)
     else:
-        print("[WARN] 未提供 FINAL_TEST_FILE 或文件不存在，跳过测试集指标。")
+        print("[WARN] FINAL_TEST_FILE not provided or file does not exist; skipping test set metrics.")
 
-    # —— 画“总览表”成图片（便于放论文或幻灯）——
-    # 组织行：Fold1..Fold5 + CV mean±SD + CV pooled + Test
+    # —— Create an image of the "Overview Table" (for easy inclusion in papers or slides)——
+    # Organize the line：Fold1..Fold5 + CV mean±SD + CV pooled + Test
     rows = []
     for _, r in df_fold.sort_values("Split").iterrows():
         rows.append({"Split": r["Split"], **{k: r[k] for k in ["N","MAE","RMSE","R2","Pearson","Spearman"]}})
@@ -188,12 +186,12 @@ def main():
     if test_metrics:
         rows.append({"Split": "Test", **test_metrics})
 
-    # 导出 LaTeX（booktabs）
+    # Export LaTeX (booktabs)
     tex = _latex_table(rows, ["Split","N","MAE","RMSE","R2","Pearson","Spearman"])
     (outdir / "overview_table.tex").write_text(tex, encoding="utf-8")
 
-    # 生成 PNG/SVG 表格
-    # 将数值统一为字符串格式
+    # Generate PNG/SVG tables
+    # Convert numerical values to string format
     def fmt_val(v):
         if isinstance(v, str): return v
         try:
@@ -211,10 +209,10 @@ def main():
     tbl.set_fontsize(10)
     tbl.scale(1, 1.2)
     ax.set_title("Performance overview (5-fold CV and test)", pad=12)
-    # 保存
+    # Save
     _save_dual(fig, outdir / "overview_table", DPI)
 
-    print("[完成] 输出目录：", outdir)
+    print("[Completed] Output directory:", outdir)
 
 if __name__ == "__main__":
     import pandas as pd, numpy as np

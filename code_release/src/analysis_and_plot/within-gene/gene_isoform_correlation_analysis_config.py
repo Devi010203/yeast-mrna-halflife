@@ -77,7 +77,7 @@ def _pick_col(cols, candidates):
     low = {c.lower(): c for c in cols}
     for k in candidates:
         if k in low: return low[k]
-    # 宽松匹配
+    # Loose matching
     for c in cols:
         lc = c.lower()
         if any(tag in lc for tag in candidates):
@@ -86,10 +86,10 @@ def _pick_col(cols, candidates):
 
 def export_cross_gene_median(df_merged: pd.DataFrame, outdir: Path):
     """
-    df_merged 需至少含：基因列、真实列、预测列。
-    保存到 outdir / 'cross_gene_median.csv'，列为：
+    df_merged Must contain at least: gene column, true column, predicted column.
+    Save to outdir/'cross_gene_median.csv', columns as:
       gene, ref_real, ref_pred, n
-    并打印 R²、斜率/截距（ŷ = a·x + b）。
+    and print R², slope/intercept (ŷ = a·x + b).
     """
     cols = df_merged.columns
 
@@ -98,7 +98,7 @@ def export_cross_gene_median(df_merged: pd.DataFrame, outdir: Path):
     pred_col = _pick_col(cols, ["pred","y_pred","prediction","predicted","pred_half_life","half_life_pred","yhat","estimate"])
 
     if gene_col is None or true_col is None or pred_col is None:
-        raise ValueError(f"缺少必要列：gene/true/pred。检测到的列：{list(cols)}")
+        raise ValueError(f"Missing required columns: gene/true/pred. Detected columns:{list(cols)}")
 
     d = df_merged[[gene_col, true_col, pred_col]].copy()
     d = d.replace([np.inf,-np.inf], np.nan).dropna()
@@ -111,7 +111,7 @@ def export_cross_gene_median(df_merged: pd.DataFrame, outdir: Path):
     out_csv = outdir / "cross_gene_median.csv"
     g.to_csv(out_csv, index=False)
 
-    # 计算基因层面的拟合指标（用于角标/文字）
+    # Calculate gene-level fit metrics (for superscripts/text)
     x = g["ref_real"].to_numpy()
     y = g["ref_pred"].to_numpy()
     A = np.vstack([x, np.ones_like(x)]).T
@@ -235,18 +235,18 @@ def fisher_z_mean(rs: List[float], ns: List[int]) -> float:
 
 
 def _canon(s: str) -> str:
-    """把列名做宽松规范化，用于后缀/大小写/下划线不一致时的模糊匹配。"""
+    """Implement loose standardisation of list names to enable fuzzy matching when suffixes, case, or underscores are inconsistent."""
     return "".join(ch for ch in s.lower() if ch.isalnum() or ch == "_")
 
 def _resolve_merged_col(df: pd.DataFrame, base: Optional[str], prefer: str = "either") -> Optional[str]:
     """
-    在 merge 之后解析列名：可能是 base、本体；或被 pandas 加了后缀 base_pred/base_data。
-    prefer: "pred" | "data" | "either"  指定当两边都有时优先选择哪一侧。
+    Parses column names after merge: may be base, ontology; or base_pred/base_data suffixed by pandas.
+    prefer: “pred” | ‘data’ | “either” Specifies which side is preferred when both sides are used.
     """
     if base is None:
         return None
     cols = list(df.columns)
-    # 先按优先级尝试精确匹配
+    # Attempt exact matches first according to priority
     candidates = [base]
     if prefer in ("either", "pred"):
         candidates.append(f"{base}_pred")
@@ -255,7 +255,7 @@ def _resolve_merged_col(df: pd.DataFrame, base: Optional[str], prefer: str = "ei
     for c in candidates:
         if c in df.columns:
             return c
-    # 再做宽松匹配（去掉后缀、大小写/下划线容忍）
+    # Perform a relaxed match (removing suffixes, case/underscore tolerance)
     base_core = _canon(base.replace("_pred", "").replace("_data", ""))
     best = None
     for c in cols:
@@ -384,11 +384,11 @@ def run_analysis(config: Dict) -> str:
         map_u_to_t=bool(config.get("map_u_to_t", True)),
     )
 
-    # === 关键解析：合并后解析列名（处理 _pred/_data 后缀） ===
+    # === Key Parsing: Post-merge column name parsing (handling _pred/_data suffixes) ===
     pred_seq_col_m    = _resolve_merged_col(merged, pred_seq_col,    prefer="pred")
     dataset_seq_col_m = _resolve_merged_col(merged, dataset_seq_col, prefer="data")
 
-    # Gene 列解析（优先用数据集一侧）
+    # Gene column parsing (prioritise the dataset side)
     gene_col = dataset_gene_col if dataset_gene_col in merged.columns else None
     if gene_col is None:
         gene_col = _resolve_merged_col(merged, dataset_gene_col or gene_col_found, prefer="data")
@@ -397,7 +397,7 @@ def run_analysis(config: Dict) -> str:
     if gene_col is None:
         raise RuntimeError("Gene column not found after merge.")
 
-    # Real 值列解析（来自数据集或预测文件）
+    # Real-value column parsing (from datasets or forecast files)
     if real_from_dataset:
         real_col_m = _resolve_merged_col(merged, dataset_true_col, prefer="data")
     else:
@@ -405,12 +405,12 @@ def run_analysis(config: Dict) -> str:
     if real_col_m is None:
         raise RuntimeError("Could not resolve real (true) half-life column after merge.")
 
-    # Pred 值列解析（预测侧）
+    # Pred Value Column Analysis (Prediction Side)
     pred_col_m = _resolve_merged_col(merged, pred_pred_col, prefer="pred")
     if pred_col_m is None:
         raise RuntimeError("Could not resolve predicted half-life column after merge.")
 
-    # === NEW: 导出 cross_gene_median.csv，用于补充图 Sy ===
+    # === NEW: Export cross_gene_median.csv for supplementary figure Sy ===
     try:
         export_cross_gene_median(merged, Path(outdir))
     except Exception as e:

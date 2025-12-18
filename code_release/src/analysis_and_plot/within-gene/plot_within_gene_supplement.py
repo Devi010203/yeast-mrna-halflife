@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 # plot_within_gene_supplement.py  (final robust version)
 #
-# 作用：
-#   Sx：逐基因相关分布（小提琴+箱线）
-#       - 优先读 per_gene_summary.csv（pearson_r/spearman_rho）
-#       - 若无则用 analysis_per_isoform.csv 的 d_real/d_pre 现场按基因重算
-#       - 角标同时给出：宏平均/中位数、Fisher-z 加权均值、pooled within-gene Pearson
-#   Sy：基因层中位数散点（ref_real vs ref_pred）
-#       - 优先读 cross_gene_median.csv
-#       - 若无则从 per_gene_summary.csv 或 analysis_per_isoform.csv 现场计算
+# Function:
+#   Sx: Per-gene correlation distribution (violin + box plot)
+#       - Prioritises reading per_gene_summary.csv (pearson_r/spearman_rho)
+#       - If unavailable, recalculates on-the-fly per gene using d_real/d_pre from analysis_per_isoform.csv
+#       - Simultaneously displays: macro-average/median, Fisher-z weighted mean, pooled within-gene Pearson
+#   Sy: Gene-level median scatterplot (ref_real vs ref_pred)
+#       - Prioritises reading cross_gene_median.csv
+#       - If absent, compute on-site from per_gene_summary.csv or analysis_per_isoform.csv
 #
-# 运行：python plot_within_gene_supplement.py
-# 仅需修改顶部路径常量即可，无需命令行参数。
+# Run: python plot_within_gene_supplement.py
+# Only the top-level path constant requires modification; no command-line arguments are needed.
 
 from pathlib import Path
 import numpy as np
@@ -21,7 +21,7 @@ import scienceplots
 
 
 
-# ====== 路径配置（按需修改；当前写成你的常用路径） ======
+# ====== Path configuration (modify as required; currently set to your preferred path) ======
 PER_GENE_CSV = Path(r"F:\mRNA_Project\3UTR\Paper\script\result\gene_isoform_analysis-2\per_gene_summary.csv")
 CROSS_GENE_CSV = Path(r"F:\mRNA_Project\3UTR\Paper\script\result\gene_isoform_analysis-2\cross_gene_median.csv")
 PER_ISOFORM_CSV = PER_GENE_CSV.parent / "analysis_per_isoform.csv"
@@ -37,7 +37,7 @@ plt.rcParams.update({
     "mathtext.default": "regular",
     "mathtext.fontset": "dejavusans",
     "axes.unicode_minus": False,
-    # 字号相关
+
     "font.size":17,
     "axes.titlesize":20,
     "axes.labelsize":19,
@@ -46,14 +46,14 @@ plt.rcParams.update({
     "legend.fontsize":16,
     "figure.titlesize":17,
     "figure.dpi": 400
-    # "axes.titleweight": "bold",  # 图标题
-    # "axes.labelweight": "bold",  # x / y 轴标签
+    # "axes.titleweight": "bold",
+    # "axes.labelweight": "bold",
 })
 
 
-# ---------- 小工具 ----------
+# ---------- gadget ----------
 def pick_col(cols, candidates):
-    """宽松匹配列名（大小写/下划线/子串都容忍）"""
+    """Permissive pair naming (case-insensitive/underscores/substrings all permitted)"""
     low = {c.lower(): c for c in cols}
     for k in candidates:
         if k in low: return low[k]
@@ -72,7 +72,7 @@ def ensure_numeric(df, col):
     return df
 
 def qtrim_limits(x, y=None, q=(0.01, 0.99), pad=0.03):
-    """分位数裁剪坐标范围，减少极端点带来的空白。"""
+    """Trim the coordinate range at quantiles to reduce blank space caused by outliers."""
     arr = np.asarray(x, float); arr = arr[np.isfinite(arr)]
     if y is not None:
         arr2 = np.asarray(y, float); arr2 = arr2[np.isfinite(arr2)]
@@ -101,7 +101,7 @@ def corr_spearman(x, y):
     return float(np.corrcoef(xr, yr)[0, 1])
 
 def fisher_z_mean(rs, ns):
-    """Fisher-z 加权均值（权重 ~ n-3）。"""
+    """Fisher-z weighted mean (weights ~ n-3)."""
     vals, wts = [], []
     for r, n in zip(rs, ns):
         if pd.notna(r) and np.isfinite(r) and abs(r) < 1 and pd.notna(n):
@@ -114,7 +114,7 @@ def fisher_z_mean(rs, ns):
     return float(np.tanh(zbar))
 
 
-# ---------- 读取 per_gene_summary.csv -> 直接取 per-gene 系列 ----------
+# ---------- Read per_gene_summary.csv -> Directly retrieve the per-gene series ----------
 def try_load_per_gene_series(per_gene_csv: Path):
     if not per_gene_csv.exists():
         return None
@@ -124,20 +124,19 @@ def try_load_per_gene_series(per_gene_csv: Path):
 
     pear_col  = pick_col(cols, ["pearson_r","pearson","r_pearson"])
     spear_col = pick_col(cols, ["spearman_rho","spearman","rho"])
-    # 你文件里常见 n_isoforms_x / n_isoforms_y，这里优先 _x
     n_col     = pick_col(cols, ["n_isoforms_x","n_isoforms","n_isoforms_y","n","count","num_isoforms","size"])
 
     for c in [pear_col, spear_col, n_col]:
         df = ensure_numeric(df, c)
 
-    # 先尝试 n>=2 过滤；若过滤后空则撤销（防误杀）
+    # First attempt filtering with n ≥ 2; if the result is empty, reverse the operation (to prevent false positives).
     df_orig = df.copy()
     if n_col and n_col in df.columns:
         df = df[df[n_col] >= 3].copy()
         if df.empty:
             df = df_orig
 
-    # 收集 per-gene 序列
+    # Collect per-gene sequences
     series_list, labels, stat_lines = [], [], []
     # Pearson per-gene
     if pear_col and pear_col in df.columns:
@@ -154,7 +153,7 @@ def try_load_per_gene_series(per_gene_csv: Path):
             labels.append("Spearman (per-gene)")
             stat_lines.append(f"Spearman: mean={s.mean():.3f}, median={s.median():.3f}")
 
-    # 追加 Fisher-z 加权（基于 per_gene_summary）
+    # Add Fisher's z-weighting (based on per_gene_summary)
     if pear_col and n_col and pear_col in df.columns and n_col in df.columns:
         r_list = pd.to_numeric(df[pear_col], errors="coerce").to_numpy()
         n_list = pd.to_numeric(df[n_col], errors="coerce").to_numpy()
@@ -162,7 +161,7 @@ def try_load_per_gene_series(per_gene_csv: Path):
         if np.isfinite(fz):
             stat_lines.append(rf"Fisher-z weighted Pearson $\approx$ {fz:.3f}")
 
-    # 追加 pooled within-gene（需要 analysis_per_isoform.csv）
+    # Append intragenic aggregation data (need to analyze _per_isoform.csv file)
     if PER_ISOFORM_CSV.exists():
         dfi = pd.read_csv(PER_ISOFORM_CSV)
         gcol  = pick_col(dfi.columns, ["gene","systematic_name","gene_name","orf","name"])
@@ -182,7 +181,7 @@ def try_load_per_gene_series(per_gene_csv: Path):
     return None
 
 
-# ---------- 从 analysis_per_isoform.csv 现场计算 per-gene 系列 ----------
+# ---------- Calculate per-gene series on-site from analysis_per_isoform.csv ----------
 def compute_series_from_isoform(per_isoform_csv: Path):
     if not per_isoform_csv.exists():
         return None
@@ -219,7 +218,7 @@ def compute_series_from_isoform(per_isoform_csv: Path):
         labels.append("Spearman (per-gene, computed)")
         stat_lines.append(f"Spearman: mean={s2.mean():.3f}, median={s2.median():.3f}")
 
-    # 追加 pooled within-gene（同一次读取直接算）
+    # Append pooled within-gene (same read counts directly)
     x_all = pd.to_numeric(dfi[dreal_col], errors="coerce").to_numpy()
     y_all = pd.to_numeric(dfi[dpre_col], errors="coerce").to_numpy()
     m = np.isfinite(x_all) & np.isfinite(y_all)
@@ -233,9 +232,9 @@ def compute_series_from_isoform(per_isoform_csv: Path):
     return None
 
 
-# ---------- Sy：交叉基因中位数散点 ----------
+# ---------- Sy: Median scatter plot of cross-genome ----------
 def plot_cross_gene_from_df(g_df: pd.DataFrame, outdir: Path, title_suffix=""):
-    # 需要列：ref_real / ref_pred
+    # Required column：ref_real / ref_pred
     if not {"ref_real", "ref_pred"}.issubset(set(g_df.columns)):
         return
     x = pd.to_numeric(g_df["ref_real"], errors="coerce").to_numpy()
@@ -245,7 +244,7 @@ def plot_cross_gene_from_df(g_df: pd.DataFrame, outdir: Path, title_suffix=""):
     if x.size < 2:
         return
 
-    # 最小二乘 y = a x + b
+    # Least squares y = a x + b
     A = np.vstack([x, np.ones_like(x)]).T
     a, b = np.linalg.lstsq(A, y, rcond=None)[0]
     yhat = a*x + b
@@ -256,14 +255,14 @@ def plot_cross_gene_from_df(g_df: pd.DataFrame, outdir: Path, title_suffix=""):
     lo, hi = qtrim_limits(x, y, q=(0.01, 0.99), pad=0.03)
     xs = np.array([lo, hi])
 
-    # 散点图：图像物理比例 1:1，坐标范围也对称
+    # Scatter plot: Image physical scale 1:1, coordinate range also symmetrical
     fig2, ax2 = plt.subplots(figsize=(4.8, 4.8))
     ax2.scatter(x, y, s=10, alpha=0.6, linewidth=0)
     ax2.plot(xs, xs, "--", lw=1.2, label="y=x")
     ax2.plot(xs, a * xs + b, lw=1.5, label=f"fit: y={a:.2f}x+{b:.2f}")
     ax2.set_xlim(lo, hi);
     ax2.set_ylim(lo, hi)
-    ax2.set_aspect("equal", adjustable="box")  # 确保 x/y 轴刻度比例一致
+    ax2.set_aspect("equal", adjustable="box")  # Ensure that the x/y axis scales are consistent
     ax2.set_xlabel("Gene-level median (truth)")
     ax2.set_ylabel("Gene-level median (pred)")
     # ax2.set_title(rf"Cross-gene baseline{title_suffix}  ($R^2 \approx {r2:.3f}$)")
@@ -275,7 +274,7 @@ def plot_cross_gene_from_df(g_df: pd.DataFrame, outdir: Path, title_suffix=""):
 
 
 def try_plot_cross_gene(per_gene_csv: Path, cross_csv: Path, per_isoform_csv: Path, outdir: Path):
-    # 1) 优先用 cross_gene_median.csv
+    # 1) Prioritise the use of cross_gene_median.csv
     if cross_csv.exists():
         d2 = pd.read_csv(cross_csv).dropna()
         xcol = pick_col(d2.columns, ["ref_real","median_real","real_ref","truth_median"])
@@ -285,7 +284,7 @@ def try_plot_cross_gene(per_gene_csv: Path, cross_csv: Path, per_isoform_csv: Pa
             plot_cross_gene_from_df(g, outdir, title_suffix="")
             return
 
-    # 2) 若 per_gene_summary.csv 含 ref_real/ref_pre，直接用
+    # 2) If per_gene_summary.csv contains ref_real/ref_pre, use directly
     if per_gene_csv.exists():
         df = pd.read_csv(per_gene_csv)
         if {"ref_real", "ref_pre"}.issubset(set(df.columns)):
@@ -294,7 +293,7 @@ def try_plot_cross_gene(per_gene_csv: Path, cross_csv: Path, per_isoform_csv: Pa
                 plot_cross_gene_from_df(g, outdir, title_suffix=" (from per_gene_summary)")
                 return
 
-    # 3) 兜底：从 analysis_per_isoform.csv 现场计算基因中位数
+    # 3) Fallback: Calculate gene median values on-site from analysis_per_isoform.csv
     if per_isoform_csv.exists():
         dfi = pd.read_csv(per_isoform_csv)
         gene_col  = pick_col(dfi.columns, ["gene","systematic_name","gene_name","orf","name"])
@@ -309,25 +308,25 @@ def try_plot_cross_gene(per_gene_csv: Path, cross_csv: Path, per_isoform_csv: Pa
                 plot_cross_gene_from_df(g, outdir, title_suffix=" (computed)")
 
 
-# ---------- 主流程 ----------
+# ---------- Main process ----------
 def main():
-    # ====== Sx：逐基因相关分布 ======
+    # ====== Sx：Gene-wise distribution ======
     series_pack = try_load_per_gene_series(PER_GENE_CSV)
     if series_pack is None:
         series_pack = compute_series_from_isoform(PER_ISOFORM_CSV)
 
     if series_pack is None:
         raise ValueError(
-            "无法从 per_gene_summary.csv 或 analysis_per_isoform.csv 获取逐基因 Pearson/Spearman 数据。\n"
-            f"请检查：\n"
-            f"1) {PER_GENE_CSV} 是否包含 'pearson_r' / 'spearman_rho' 数值列；或\n"
-            f"2) {PER_ISOFORM_CSV} 是否包含 'gene'、'd_real'、'd_pre' 数值列。"
+            "Pearson/Spearman data per gene cannot be obtained from per_gene_summary.csv or analysis_per_isoform.csv.\n"
+            f"Please check：\n"
+            f"1) {PER_GENE_CSV} Whether it is included 'pearson_r' / 'spearman_rho' Numeric column; or\n"
+            f"2) {PER_ISOFORM_CSV} Whether it includes the numerical columns 'gene', 'd_real', and 'd_pre'."
         )
 
     series_list, labels, stat_lines = series_pack
 
-    # ====== Sx：per-gene 相关分布（violin）======
-    # 小提琴图：4:3 比例
+    # ====== Sx: per-gene-related distribution (violin plot)======
+    # Violin diagram: 4:3 aspect ratio
     fig, ax = plt.subplots(figsize=(6.4, 4.8))
     ax.violinplot(series_list, showmeans=False, showmedians=False, showextrema=False)
     ax.boxplot(series_list, widths=0.2, showfliers=False)
@@ -342,11 +341,11 @@ def main():
     fig.savefig(OUTDIR / "per_gene_corr_violin.png")
     fig.savefig(OUTDIR / "per_gene_corr_violin.svg")
 
-    # ====== Sx：per-gene 相关分布（箱线图 + 抖动散点）======
+    # ====== Sx: per-gene-related distribution (box plot + jittered scatter plot)======
     fig2, ax2 = plt.subplots(figsize=(6.4, 4.8))
     positions = np.arange(1, len(series_list) + 1)
 
-    # 箱线图本体
+    # Box plot
     ax2.boxplot(
         series_list,
         positions=positions,
@@ -356,7 +355,7 @@ def main():
         patch_artist=False,
     )
 
-    # 叠加抖动散点，显示每个基因的相关系数
+    # Overlay jitter scatter plots to display the correlation coefficients for each gene.
     max_points = 400
     for i, vals in enumerate(series_list, start=1):
         vals_arr = np.asarray(vals, dtype=float)
@@ -381,10 +380,10 @@ def main():
     fig2.savefig(OUTDIR / "per_gene_corr_box_jitter.png")
     fig2.savefig(OUTDIR / "per_gene_corr_box_jitter.svg")
 
-    # ====== Sy：交叉基因中位数散点 ======
+    # ====== Sy: Median scatter plot of cross-genome ======
     try_plot_cross_gene(PER_GENE_CSV, CROSS_GENE_CSV, PER_ISOFORM_CSV, OUTDIR)
 
-    print(f"[OK] 输出已保存到：{OUTDIR}")
+    print(f"[OK] Output has been saved to：{OUTDIR}")
 
 if __name__ == "__main__":
     main()

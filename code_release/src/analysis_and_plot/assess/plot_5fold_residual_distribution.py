@@ -1,13 +1,13 @@
 # plots/plot_5fold_residual_distribution.py
 # -*- coding: utf-8 -*-
 """
-5 折残差分布 & 正态性分析：
-  - 每折：残差直方图（叠加匹配均值/方差的正态曲线）
-  - 每折：QQ 图（对标准正态）
-  - 汇总：小提琴 + 箱线（各折 + All）
-  - 导出：summary_per_fold.csv（MAE, RMSE, mean, sd, skew, kurt, KS/Normaltest p）
-输出目录：<项目根>/result/plot/residual_distribution/<时间戳>/
-图像：PNG+SVG（dpi=400）；坐标文字非斜体
+5-fold residual distribution & normality analysis:
+  - Per fold: Residual histogram (overlaid with normal curve matching mean/variance)
+  - Per fold: QQ plot (against standard normal distribution)
+  - Aggregated: Violin + Boxplot (per fold + All)
+  - Export: summary_per_fold.csv (MAE, RMSE, mean, sd, skew, kurt, KS/Normaltest p)
+Output directory: <project root>/result/plot/residual_distribution/<timestamp>/
+Images: PNG+SVG (dpi=400); axis labels non-italic
 """
 
 import os, math
@@ -30,7 +30,6 @@ matplotlib.rcParams.update({
     "mathtext.default": "regular",
     "mathtext.fontset": "dejavusans",
     "axes.unicode_minus": False,
-    # 字号相关
     "font.size":17,
     "axes.titlesize":20,
     "axes.labelsize":19,
@@ -38,12 +37,12 @@ matplotlib.rcParams.update({
     "ytick.labelsize":15,
     "legend.fontsize":16,
     "figure.titlesize":17,
-    # "axes.titleweight": "bold",  # 图标题
-    # "axes.labelweight": "bold",  # x / y 轴标签
+    # "axes.titleweight": "bold",
+    # "axes.labelweight": "bold",
 })
 
-# ========== 在此手动填写（不使用命令行）==========
-# 为每折指定 CSV 路径（只需包含“真值列 + 预测列”，列名可自动识别）
+# ========== Please fill in manually here==========
+# Specify a CSV path for each fold (only requires "true value column + predicted column"; column names will be automatically recognized)
 FOLD_FILES: Dict[str, str] = {
     "Fold1": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01\val_predictions_fold1.csv",
     "Fold2": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01\val_predictions_fold2.csv",
@@ -51,18 +50,18 @@ FOLD_FILES: Dict[str, str] = {
     "Fold4": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01\val_predictions_fold4.csv",
     "Fold5": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01\val_predictions_fold5.csv",
 }
-# 直方图设置
+# Histogram Settings
 NBINS = 60
 POINT_ALPHA = 0.25
 DPI = 400
 
-DO_LOG1P = True          # 是否额外生成 log1p 残差版本的 1–3
-SMOOTH_QUANTILES = np.linspace(0.0, 1.0, 11)  # 分位平滑的横坐标分位点
-NBINS_HIST = 60          # 直方图箱数
-POINT_ALPHA = 0.25       # 散点透明度，避免遮挡
+DO_LOG1P = True          # Should log1p residual versions 1–3 be generated additionally?
+SMOOTH_QUANTILES = np.linspace(0.0, 1.0, 11)  # Quantile points of the horizontal axis for quantile smoothing
+NBINS_HIST = 60          # Number of histogram bins
+POINT_ALPHA = 0.25       # Scatter transparency to avoid occlusion
 
-# 新增：用于限制散点显示范围的分位数（只影响散点，不影响统计）
-VIOLIN_ABS_Q = 0.99   # 小提琴/箱线图仅展示 |residual| 的 99% 分位范围（可调）
+# Newly added：The percentile used to limit the scatter plot display range (affects only the scatter plot, not the statistics)
+VIOLIN_ABS_Q = 0.99   # Violin/Box Plot displays only the 99th percentile range of |residual| (adjustable)
 
 
 # ===============================================
@@ -102,7 +101,7 @@ def _auto_cols(df: pd.DataFrame) -> Tuple[str, str]:
             if any(k in cl for k in ["pred","hat","predict"]):
                 yp = c; break
     if yt is None or yp is None:
-        raise ValueError(f"无法识别真值/预测列：{list(df.columns)}")
+        raise ValueError(f"Unable to recognize true/predicted column:{list(df.columns)}")
     return yt, yp
 
 def _read_residuals(fp: Path) -> np.ndarray:
@@ -136,7 +135,7 @@ def _plot_qq(resid: np.ndarray, title: str, out_base: Path):
     fig, ax = plt.subplots(figsize=(6.2, 6.2))
     (osm, osr), (slope, intercept, r) = stats.probplot(resid, dist="norm", sparams=(), fit=True)
     ax.scatter(osm, osr, s=12, alpha=0.6, linewidth=0)
-    # 理论直线
+    # Theoretical straight line
     xx = np.array([np.min(osm), np.max(osm)], dtype=float)
     ax.plot(xx, intercept + slope*xx, color="C1", linewidth=2.0, label=f"fit: y={intercept:.2g}+{slope:.2g}x")
     ax.set_xlabel("Theoretical quantiles (Normal)")
@@ -155,10 +154,10 @@ def _summary_stats(resid: np.ndarray) -> Dict[str, float]:
     sd = float(np.std(resid, ddof=1)) if resid.size > 1 else np.nan
     skew = float(stats.skew(resid, bias=False)) if resid.size > 2 else np.nan
     kurt = float(stats.kurtosis(resid, fisher=True, bias=False)) if resid.size > 3 else np.nan
-    # 正态性检验
+    # Normality Test
     ks_p = np.nan
     try:
-        # KS 需给定均值和方差后的正态分布
+        # KS requires a normal distribution with specified mean and variance.
         if np.isfinite(sd) and sd > 0:
             ks_p = float(stats.kstest(resid, "norm", args=(mean, sd)).pvalue)
     except Exception:
@@ -173,57 +172,57 @@ def _summary_stats(resid: np.ndarray) -> Dict[str, float]:
 
 def main():
     outdir = _ensure_outdirs()
-    print("[输出目录]", outdir)
+    print("[Output Directory]", outdir)
 
     per_fold_resid: Dict[str, np.ndarray] = {}
     rows = []
 
-    # 逐折读取与绘图
+    # Read and plot frame by frame
     for fold, path in FOLD_FILES.items():
         fp = Path(path)
         if not fp.is_file():
-            print(f"[WARN] 未找到文件：{fp}，跳过 {fold}")
+            print(f"[WARN] File not found:{fp}，Skip {fold}")
             continue
         resid = _read_residuals(fp)
         per_fold_resid[fold] = resid
 
-        # 直方图+高斯曲线
+        # Histogram + Gaussian Curve
         _plot_hist_with_gauss(resid, f"Residual histogram — {fold}", outdir / "hist" / f"hist_{fold}")
-        # QQ 图
+        # QQ
         _plot_qq(resid, f"QQ plot — {fold}", outdir / "qq" / f"qq_{fold}")
-        # 统计
+        # Statistics
         st = _summary_stats(resid)
         st["fold"] = fold
         rows.append(st)
 
     if len(per_fold_resid) == 0:
-        raise RuntimeError("没有任何有效折的数据，请在 FOLD_FILES 中填写正确的 CSV 路径。")
+        raise RuntimeError("No valid fold data is available. Please enter the correct CSV path in FOLD_FILES.")
 
-    # 汇总 All
+    # Summary All
     all_resid = np.concatenate(list(per_fold_resid.values()))
     _plot_hist_with_gauss(all_resid, "Residual histogram — All folds", outdir / "hist" / "hist_all")
     _plot_qq(all_resid, "QQ plot — All folds", outdir / "qq" / "qq_all")
     st_all = _summary_stats(all_resid); st_all["fold"] = "All"
     rows.append(st_all)
 
-    # 小提琴 + 箱线（各折 + All）
+    # Violin + Box Line (Each Fold + All)
     labels = list(per_fold_resid.keys()) + ["All"]
     data = [per_fold_resid[k] for k in per_fold_resid.keys()] + [all_resid]
 
-    # ---- 计算全局 |residual| 的分位数，用于控制 y 轴范围 ----
+    # ---- Compute the quantiles of the global |residual| to control the y-axis range. ----
     all_concat = np.concatenate(data)
     if all_concat.size > 0 and np.any(np.isfinite(all_concat)):
         max_abs = float(np.quantile(np.abs(all_concat), VIOLIN_ABS_Q))
     else:
         max_abs = 0.0
 
-    # 为了避免极端点把 violin 形状拉扁，这里可以把每折数据 clip 一下（仅用于图）
+    # To prevent extreme points from flattening the violin shape, each fold data point can be clipped (for visual purposes only).
     if max_abs > 0:
         data_violin = [np.clip(d, -max_abs, max_abs) for d in data]
     else:
         data_violin = data
 
-    # 小提琴
+    # Violin
     fig, ax = plt.subplots(figsize=(max(7.5, 1.2 * len(labels)), 4.8))
     parts = ax.violinplot(data_violin, showmeans=True, showextrema=False, widths=0.9)
     for pc in parts['bodies']:
@@ -237,7 +236,7 @@ def main():
         ax.set_ylim(-1.05 * max_abs, 1.05 * max_abs)
     _save_dual(fig, outdir / "violin" / "violin_per_fold")
 
-    # 箱线（同样使用 clip 后的数据 + 同一 y 轴范围）
+    # Boxplots (using the same data after clipping + the same y-axis range)
     if max_abs > 0:
         data_box = data_violin
     else:
@@ -254,11 +253,11 @@ def main():
         ax.set_ylim(-1.05 * max_abs, 1.05 * max_abs)
     _save_dual(fig, outdir / "violin" / "box_per_fold")
 
-    # 导出统计
+    # Export Statistics
     cols = ["fold","N","MAE","RMSE","mean","sd","skew","kurt","ks_p","normal_p"]
     pd.DataFrame(rows)[cols].to_csv(outdir / "summary_per_fold.csv", index=False)
 
-    print("[完成] 图像与统计输出至：", outdir)
+    print("[Completed] Image and statistical output to:", outdir)
 
 if __name__ == "__main__":
     main()

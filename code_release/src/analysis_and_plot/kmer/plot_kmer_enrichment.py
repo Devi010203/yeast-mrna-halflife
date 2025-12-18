@@ -1,19 +1,19 @@
 # plots/plot_kmer_enrichment.py
 # -*- coding: utf-8 -*-
 """
-误差驱动与方向性（高估/低估）k-mer 富集分析（论文用图）
-- 读取 RUN_DIR/final_test_predictions.csv（需包含：sequence, true, pred）
-- 计算 residual = true - pred，abs_error = |residual|
-- 三类富集：
-  1) 绝对误差 |error|：top vs bottom
-  2) 方向性“低估”（正残差）：在 residual > 0 的子集内，按 |residual| 切分 top vs bottom
-  3) 方向性“高估”（负残差）：在 residual < 0 的子集内，按 |residual| 切分 top vs bottom
-- 每类均输出：火山图、含/不含 |error| 条形图、归一化位置热图；及 CSV 结果
+Error-Driven and Directional (Overestimation/Underestimation) k-mer Enrichment Analysis (Paper Figure)
+- Read RUN_DIR/final_test_predictions.csv (must contain: sequence, true, pred)
+- Calculate residual = true - pred, abs_error = |residual|
+- Three enrichment types:
+  1) Absolute error |error|: top vs bottom
+  2) Directional "underestimation" (positive residuals): Within the subset where residual > 0, split top vs bottom by |residual|
+  3) Directional "overestimation" (negative residuals): Within the subset where residual < 0, split top vs bottom by |residual|
+- Output per category: Volcano plot, bar chart with/without |error|, normalized position heatmap; plus CSV results
 
-使用：
-1) 修改 CONFIG["RUN_DIR"]（含 final_test_predictions.csv）
-2) 运行：python plots/plot_kmer_enrichment.py
-3) 输出：<项目根>/result/plot/kmer_enrichment/ 下的 .png/.svg（dpi=400）与若干 CSV
+Usage:
+1) Modify CONFIG["RUN_DIR"] (containing final_test_predictions.csv)
+2) Run: python plots/plot_kmer_enrichment.py
+3) Output: .png/.svg files (dpi=400) and several CSV files under <project root>/result/plot/kmer_enrichment/
 """
 
 import os, math
@@ -28,35 +28,35 @@ import scienceplots
 plt.style.use('science')
 
 
-# ========== 手动填写 ==========
+# ========== Manual entry ==========
 CONFIG = {
-    "RUN_DIR": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01",  # 里面要有 final_test_predictions.csv
+    "RUN_DIR": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01",  # It must contain final_test_predictions.csv
     "SAVE_SUBDIR": "kmer_enrichment",
 
-    # k-mer 设置
-    "K_LIST": [5, 6],            # 同时跑 5-mer 与 6-mer
-    "TOP_PCT": 0.10,             # |error| 前 10% 视为 top，后 10% 为 bottom（方向性子集也用这个比例）
-    "ALPHABET": "ACGU",         # RNA/UTR 常见字符；有 T 也没关系，非字母表字符会被忽略
-    "MIN_OCC": 20,               # 过滤总出现过少的 kmer（在当前比较的样本集合中统计）
+    # k-mer Settings
+    "K_LIST": [5, 6],            # Run 5-mers and 6-mers simultaneously
+    "TOP_PCT": 0.10,             # |error| The top 10% are considered top, and the bottom 10% are considered bottom (directional subsets also use this ratio).
+    "ALPHABET": "ACGU",         # RNA/UTR common characters; T is acceptable; non-alphabetic characters will be ignored.
+    "MIN_OCC": 20,               # Filtering consistently yields too few kmers (as counted within the current sample set being compared).
 
-    # 显著性与可视化
+    # Significance and Visualization
     "FDR_Q": 0.05,
-    "VOLCANO_TOPN": 15,          # 火山图标注 top N
-    "BAR_TOPN": 12,              # 含/不含对比图展示 top N
-    "NORM_POS_BINS": 20,         # 位置热图：序列归一化切成多少段
-    "HEATMAP_TOPN": 12,          # 位置热图展示的基序个数
+    "VOLCANO_TOPN": 15,          # Volcano Map Annotation top N
+    "BAR_TOPN": 12,              # Comparison of With/Without Top N
+    "NORM_POS_BINS": 20,         # Position Heatmap: How Many Segments Should Sequence Normalization Be Divided Into?
+    "HEATMAP_TOPN": 12,          # Number of motifs displayed in the position heatmap
 
-    # 方向性富集开关
-    "DO_DIRECTIONAL": True,      # True 则额外做 posres/negres 两组
+    # Directional Enrichment Switch
+    "DO_DIRECTIONAL": True,      # If True, perform two additional sets of posres/negres.
 
-    # 作图风格
+    # Graphic Style
     "DPI": 400,
     "FIGSIZE": (6.0, 4.5),
     "GRID_ALPHA": 0.35,
 }
 # ============================
 
-# ---------- 基础工具 ----------
+# ---------- Basic Tools ----------
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
@@ -83,11 +83,11 @@ def _set_fonts():
 def _safe_read_test(run_dir: str) -> pd.DataFrame:
     fp = os.path.join(run_dir, "final_test_predictions.csv")
     if not os.path.exists(fp):
-        raise FileNotFoundError(f"未找到 {fp}")
+        raise FileNotFoundError(f"Not found {fp}")
     df = pd.read_csv(fp)
     need = {"sequence", "true", "pred"}
     if not need.issubset(df.columns):
-        raise ValueError(f"{fp} 需要包含列：{need}")
+        raise ValueError(f"{fp} Required columns must be included.：{need}")
     df = df.dropna(subset=["sequence","true","pred"]).copy()
     df["sequence"] = df["sequence"].astype(str)
     df["true"] = df["true"].astype(float)
@@ -96,9 +96,9 @@ def _safe_read_test(run_dir: str) -> pd.DataFrame:
     df["abs_error"] = np.abs(df["residual"])
     return df
 
-# ---------- 组合学与统计 ----------
+# ---------- Combinatorics and Statistics ----------
 def _scan_kmers(seq: str, k: int, alphabet: set) -> set:
-    """返回序列中所有出现过的 k-mer（去重，用于 presence 统计）"""
+    """Return all k-mers that have appeared in the sequence (deduplicated, for presence counting)"""
     s = seq.upper()
     found = set()
     for i in range(0, len(s) - k + 1):
@@ -108,7 +108,7 @@ def _scan_kmers(seq: str, k: int, alphabet: set) -> set:
     return found
 
 def _count_kmers_presence(df_sub: pd.DataFrame, k: int, alphabet: str):
-    """在给定子集 df_sub 中统计 presence；返回 (presence_rows, vocab_set)"""
+    """Count the number of occurrences in the given subset df_sub; return (presence_rows, vocab_set)"""
     alpha = set(alphabet)
     vocab = {}
     rows = []
@@ -132,8 +132,8 @@ def _fdr_bh(pvals: np.ndarray) -> np.ndarray:
 
 def _fisher_two_sided_p(a, b, c, d):
     """
-    2x2 Fisher 精确检验（双侧）
-    表格：
+    2x2 Fisher's Exact Test (two-tailed)
+    Form：
               present  absent
       top        a       b
       bottom     c       d
@@ -164,13 +164,13 @@ def _fisher_two_sided_p(a, b, c, d):
             p += px
     return min(max(p, 0.0), 1.0)
 
-# ---------- 富集核心：对任意“子集 df_sub”做 top vs bottom ----------
+# ---------- Enrichment Core: Perform top vs bottom analysis on any "subset df_sub" ----------
 def _enrichment_for_k_core(df_sub: pd.DataFrame, k: int, alphabet: str, top_pct: float) -> pd.DataFrame:
     """
-    在给定子集 df_sub 内做 presence 富集（top vs bottom，按 abs_error 排序）
-    - 不改变 df_sub.index（用原始索引判断分组，避免错位）
-    - 显著性：Fisher 双侧；多重：BH-FDR
-    返回列：["k","kmer","a","b","c","d","top_rate","bot_rate","log2fc","p","q"]
+    Perform presence enrichment within the given subset df_sub (top vs bottom, sorted by abs_error)
+    - Do not alter df_sub.index (use original indices for grouping to prevent misalignment)
+    - Significance: Fisher's exact test (two-tailed); Multiple comparison: BH-FDR
+    Return columns: ["k","kmer","a","b","c","d","top_rate","bot_rate","log2fc","p","q"]
     """
     n = len(df_sub)
     if n == 0:
@@ -179,13 +179,13 @@ def _enrichment_for_k_core(df_sub: pd.DataFrame, k: int, alphabet: str, top_pct:
     top_n = max(1, int(round(top_pct * n)))
     bottom_n = top_n
 
-    # 不 reset_index，保持原索引坐标系
+    # Do not reset_index; preserve the original index coordinate system.
     df_desc = df_sub.sort_values("abs_error", ascending=False)
     df_asc  = df_sub.sort_values("abs_error", ascending=True)
     top_idx = set(df_desc.index[:top_n].tolist())
     bot_idx = set(df_asc.index[:bottom_n].tolist())
 
-    # 仅在当前子集上统计 presence 与词表
+    # Counting presence and word lists on the current subset only
     presence_rows, vocab = _count_kmers_presence(df_sub, k, alphabet)
 
     results = []
@@ -200,7 +200,7 @@ def _enrichment_for_k_core(df_sub: pd.DataFrame, k: int, alphabet: str, top_pct:
                 if has: c += 1
                 else:   d += 1
 
-        # 过滤无信息/过少（在子集内）
+        # Filtering no information/insufficient information (within the subset)
         if (a + c) < CONFIG["MIN_OCC"]:
             continue
 
@@ -219,7 +219,7 @@ def _enrichment_for_k_core(df_sub: pd.DataFrame, k: int, alphabet: str, top_pct:
     out = out.sort_values(["q", "log2fc"], ascending=[True, False]).reset_index(drop=True)
     return out
 
-# 便捷封装：三种场景的 df_sub
+# Convenient Packaging: Three Scenarios df_sub
 def _enrich_abs(df_all: pd.DataFrame, k: int, alphabet: str) -> pd.DataFrame:
     return _enrichment_for_k_core(df_all, k, alphabet, CONFIG["TOP_PCT"])
 
@@ -231,7 +231,7 @@ def _enrich_negres(df_all: pd.DataFrame, k: int, alphabet: str) -> pd.DataFrame:
     df_sub = df_all[df_all["residual"] < 0]
     return _enrichment_for_k_core(df_sub, k, alphabet, CONFIG["TOP_PCT"])
 
-# ---------- 作图 ----------
+# ---------- Plotting ----------
 def _volcano_plot(dfk: pd.DataFrame, outdir: str, k: int, tag: str = ""):
     if dfk.empty: return
     fig, ax = plt.subplots(figsize=CONFIG["FIGSIZE"])
@@ -245,7 +245,7 @@ def _volcano_plot(dfk: pd.DataFrame, outdir: str, k: int, tag: str = ""):
     ax.set_title(ttl)
     ax.set_ylabel("-log10(FDR)")
     ax.grid(True, linestyle="--", alpha=CONFIG["GRID_ALPHA"])
-    # 标注 topN
+    # Annotation topN
     topn = min(CONFIG["VOLCANO_TOPN"], len(dfk))
     for _, r in dfk.head(topn).iterrows():
         ax.annotate(r["kmer"], (r["log2fc"], -math.log10(max(r["q"], 1e-300))),
@@ -254,7 +254,7 @@ def _volcano_plot(dfk: pd.DataFrame, outdir: str, k: int, tag: str = ""):
     _save_dual(fig, os.path.join(outdir, "volcano" + suffix))
 
 def _bar_error_diff(df_sub: pd.DataFrame, dfk: pd.DataFrame, outdir: str, k: int, tag: str = ""):
-    """对 topN 基序，比较“含/不含”的 |error| 均值差异（在 df_sub 上计算）"""
+    """For the topN motifs, compare the mean difference in |error| between "with/without" (calculated on df_sub)."""
     if dfk.empty or df_sub.empty: return
     topN = min(CONFIG["BAR_TOPN"], len(dfk))
     kmers = dfk.head(topN)["kmer"].tolist()
@@ -286,7 +286,7 @@ def _bar_error_diff(df_sub: pd.DataFrame, dfk: pd.DataFrame, outdir: str, k: int
     _save_dual(fig, os.path.join(outdir, "error_bar_presence" + suffix))
 
 def _positional_heatmap(df_sub: pd.DataFrame, dfk: pd.DataFrame, outdir: str, k: int, tag: str = ""):
-    """对 topN 基序，在 df_sub 上画归一化位置出现率热图"""
+    """For the topN motifs, plot a normalized positional frequency heatmap on df_sub."""
     if dfk.empty or df_sub.empty: return
     topN = min(CONFIG["HEATMAP_TOPN"], len(dfk))
     kmers = dfk.head(topN)["kmer"].tolist()
@@ -325,7 +325,7 @@ def _positional_heatmap(df_sub: pd.DataFrame, dfk: pd.DataFrame, outdir: str, k:
     suffix = f"_k{k}{('_' + tag) if tag else ''}"
     _save_dual(fig, os.path.join(outdir, "positional_heatmap" + suffix))
 
-# ---------- 主流程 ----------
+# ---------- Main Process ----------
 def main():
     _set_fonts()
     outdir = _ensure_outdir()
@@ -334,7 +334,7 @@ def main():
     all_results = []
 
     for k in CONFIG["K_LIST"]:
-        # 1) 绝对误差富集
+        # 1) Absolute Error Enrichment
         res_abs = _enrich_abs(df_all, k, CONFIG["ALPHABET"])
         res_abs.to_csv(os.path.join(outdir, f"kmer_enrichment_k{k}.csv"), index=False)
         all_results.append(res_abs.assign(k=k, tag="abs"))
@@ -342,9 +342,9 @@ def main():
         _bar_error_diff(df_all, res_abs, outdir, k, tag="")
         _positional_heatmap(df_all, res_abs, outdir, k, tag="")
 
-        # 2/3) 方向性富集（可选）
+        # 2/3) Directional Enrichment (Optional)
         if CONFIG.get("DO_DIRECTIONAL", True):
-            # 正残差：true > pred（模型低估）
+            # Positive residual: true > pred (model underestimates)
             df_pos = df_all[df_all["residual"] > 0]
             res_pos = _enrich_posres(df_all, k, CONFIG["ALPHABET"])
             res_pos.to_csv(os.path.join(outdir, f"kmer_enrichment_k{k}_posres.csv"), index=False)
@@ -353,7 +353,7 @@ def main():
             _bar_error_diff(df_pos, res_pos, outdir, k, tag="posres")
             _positional_heatmap(df_pos, res_pos, outdir, k, tag="posres")
 
-            # 负残差：true < pred（模型高估）
+            # Negative residual: true < pred (model overestimation)
             df_neg = df_all[df_all["residual"] < 0]
             res_neg = _enrich_negres(df_all, k, CONFIG["ALPHABET"])
             res_neg.to_csv(os.path.join(outdir, f"kmer_enrichment_k{k}_negres.csv"), index=False)
@@ -362,12 +362,12 @@ def main():
             _bar_error_diff(df_neg, res_neg, outdir, k, tag="negres")
             _positional_heatmap(df_neg, res_neg, outdir, k, tag="negres")
 
-    # 汇总表
+    # Summary Table
     if all_results:
         pd.concat(all_results, ignore_index=True).to_csv(
             os.path.join(outdir, "kmer_enrichment_results_all.csv"), index=False
         )
-    print(f"[OK] k-mer 富集图已生成：{outdir}")
+    print(f"[OK] k-mer The enrichment plot has been generated:{outdir}")
 
 if __name__ == "__main__":
     main()

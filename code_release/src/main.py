@@ -34,7 +34,7 @@ class Config:
     LEARNING_RATE = 2e-5
     DROPOUT = 0.1
 
-    MODEL_MAX_LENGTH = 1026
+    MODEL_MAX_LENGTH = 448
     EMBEDDING_DIM = 640
     PRETRAINED_MODEL_NAME = DATA_ROOT / "model" / "rna-fm"
 

@@ -160,10 +160,10 @@ def get_isoform_sequences(df, chrom_sequences):
     return df
 
 
-# ===================== 特征提取 =====================
+# ===================== Feature extraction =====================
 
 def extract_sequence_features(df):
-    """从序列中提取用于机器学习的特征"""
+    """Extracting features from sequences for machine learning"""
     features = []
     for seq in df['sequence']:
         if pd.isna(seq) or not isinstance(seq, str) or len(seq) == 0:
@@ -173,7 +173,7 @@ def extract_sequence_features(df):
         seq_len = len(seq)
         feature_vector = [
             seq_len,
-            (seq.count('G') + seq.count('C')) / seq_len,  # GC 含量
+            (seq.count('G') + seq.count('C')) / seq_len,  # GC content
             seq.count('A') / seq_len,
             seq.count('T') / seq_len,
             seq.count('G') / seq_len,
@@ -192,10 +192,10 @@ def extract_sequence_features(df):
     return pd.concat([df, feature_df], axis=1)
 
 
-# ===================== DNA→RNA 转换相关 =====================
+# ===================== DNA→RNA Conversion-related =====================
 
 def dna_to_rna_str(x):
-    """仅把 T/t 换成 U/u；其他字符保持不变。x 可能为 NaN 或非字符串。"""
+    """Replace only T/t with U/u; all other characters remain unchanged. x may be NaN or a non-string value."""
     if pd.isna(x):
         return x
     s = str(x)
@@ -205,17 +205,17 @@ def dna_to_rna_str(x):
 def convert_sequence_column_to_rna(input_csv_path, seq_col="sequence",
                                    output_suffix="_RNA"):
     """
-    将指定 CSV 文件中的 seq_col 列从 DNA (T) 转为 RNA (U)。
-    其余列保持不变，在同目录下生成追加后缀的新文件。
+    Convert the seq_col column in the specified CSV file from DNA (T) to RNA (U).
+    All other columns remain unchanged. Generate a new file with a suffix appended to the original filename in the same directory.
     """
     in_path = Path(input_csv_path)
     if not in_path.exists():
-        print(f"[RNA] 找不到输入文件：{in_path}，跳过 RNA 转换。")
+        print(f"[RNA] Input file not found:{in_path}Skip RNA conversion.")
         return None
 
     out_path = in_path.with_name(in_path.stem + output_suffix + in_path.suffix)
 
-    # 读取时尽量保证 sequence 列当作字符串，避免 'NA' 被当作缺失
+    # When reading data, ensure the sequence column is treated as a string to prevent 'NA' from being interpreted as missing values.
     try:
         df = pd.read_csv(in_path, dtype={seq_col: "string"},
                          keep_default_na=False, encoding="utf-8-sig")
@@ -223,7 +223,7 @@ def convert_sequence_column_to_rna(input_csv_path, seq_col="sequence",
         df = pd.read_csv(in_path)
 
     if seq_col not in df.columns:
-        print(f"[RNA] 列 '{seq_col}' 不存在，现有列：{list(df.columns)}，跳过 {in_path.name}")
+        print(f"[RNA] column '{seq_col}' Does not exist, existing columns:{list(df.columns)}，Skip {in_path.name}")
         return None
 
     seq_before = df[seq_col].astype("string")
@@ -232,73 +232,73 @@ def convert_sequence_column_to_rna(input_csv_path, seq_col="sequence",
 
     df[seq_col] = seq_before.apply(dna_to_rna_str)
 
-    # 保留 UTF-8 BOM 以兼容 Excel，index=False 防止生成索引列
+    # Retain UTF-8 BOM for Excel compatibility; set index=False to prevent generating index columns.
     df.to_csv(out_path, index=False, encoding="utf-8-sig")
 
-    print(f"[RNA] 已生成：{out_path}")
-    print(f"[RNA] 在列 '{seq_col}' 中，共发现 T={int(num_upper_t)}、t={int(num_lower_t)}（均已替换为 U/u）")
-    print("[RNA] 其它列未做任何修改。")
+    print(f"[RNA] Generated:{out_path}")
+    print(f"[RNA] on the list '{seq_col}' In total, T={int(num_upper_t)}、t={int(num_lower_t)}(All have been replaced with U/u)")
+    print("[RNA] No changes were made to the other columns.")
     return out_path
 
 
-# ===================== 主流程 =====================
+# ===================== Main Process =====================
 
 def main():
-    print("=== mRNA 半衰期预测数据处理 & DNA→RNA 转换 ===")
+    print("=== mRNA Half-Life Prediction Data Processing & DNA→RNA Conversion ===")
 
-    # 1. 准备目录
+    # 1.Prepare the directory
     setup_directories(OUTPUT_DIR_PROCESSED, OUTPUT_DIR_SEQUENCES)
 
-    # 2. 读取半衰期表
+    # 2. Reading the Half-Life Table
     half_life_df = load_half_life_data(HALF_LIFE_FILE)
     if half_life_df is None:
         return
 
-    # 3. 读取染色体FASTA
+    # 3. Read chromosome FASTA
     chrom_sequences = extract_chromosome_sequences(CHROMOSOME_DIR)
     if not chrom_sequences:
-        print("[终止] 未加载到任何染色体序列。")
+        print("[Termination] Not loaded onto any chromosome sequence.")
         return
 
-    # 4. 提取 3′UTR 序列
+    # 4. Extract the 3′UTR sequence
     df_with_sequences = get_isoform_sequences(half_life_df, chrom_sequences)
 
-    # 5. 提取序列特征
+    # 5. Extract sequence features
     final_df = extract_sequence_features(df_with_sequences)
 
-    # 尝试识别半衰期列名（兼容不同表头）
+    # Attempt to identify half-life column names (compatible with different headers)
     half_life_col = next(
         (col for col in ['Isoform Half-Life (min)', 'Isoform Half-Life']
          if col in final_df.columns),
         None
     )
 
-    # 6. 保存主数据集
+    # 6. Save the master dataset
     final_df.to_csv(PROCESSED_DATASET_FILE, index=False)
-    print(f"\n[输出] 完整数据集保存至: {PROCESSED_DATASET_FILE}")
+    print(f"\n[Output] Complete dataset saved to: {PROCESSED_DATASET_FILE}")
 
-    # 7. 保存“序列 + 半衰期”子集
+    # 7. Save the "Sequence + Half-Life" subset
     if half_life_col:
         name_col = 'systematic name' if 'systematic name' in final_df.columns else final_df.columns[0]
         seq_df = final_df[[name_col, 'sequence', half_life_col]]
         seq_df.to_csv(SEQUENCES_FILE, index=False)
-        print(f"[输出] 序列与半衰期文件保存至: {SEQUENCES_FILE}")
+        print(f"[Output] Sequence and half-life files saved to: {SEQUENCES_FILE}")
 
-        # 一些简单统计
+        # Some simple statistics
         stats_df = final_df.dropna(subset=[half_life_col, 'length'])
         if not stats_df.empty:
-            print("\n[统计] 基本统计信息：")
-            print(f"  - 半衰期范围: {stats_df[half_life_col].min():.2f} - "
-                  f"{stats_df[half_life_col].max():.2f} 分钟")
-            print(f"  - 平均半衰期: {stats_df[half_life_col].mean():.2f} 分钟")
-            print(f"  - 序列平均长度: {stats_df['length'].mean():.2f}")
+            print("\n[Statistics] Basic Statistical Information:")
+            print(f"  - Half-life range: {stats_df[half_life_col].min():.2f} - "
+                  f"{stats_df[half_life_col].max():.2f} minute")
+            print(f"  - Average half-life: {stats_df[half_life_col].mean():.2f} minute")
+            print(f"  - Sequence Average Length: {stats_df['length'].mean():.2f}")
         else:
-            print("\n[统计] 未能计算统计信息，因为没有有效的序列或半衰期数据。")
+            print("\n[Statistics] Statistical information could not be calculated due to the absence of valid sequence or half-life data.")
     else:
-        print("\n[警告] 未找到半衰期列，跳过统计与简化输出。")
+        print("\n[Warning] Half-life column not found; skipping statistics and simplifying output.")
 
-    # 8. 进行 DNA→RNA 转换（生成额外的 *_RNA.csv 文件）
-    print("\n=== 开始 DNA→RNA 序列转换 ===")
+    # 8. Perform DNA→RNA conversion (generate additional *_RNA.csv files)
+    print("\n=== Initiate DNA-to-RNA Sequence Conversion ===")
     convert_sequence_column_to_rna(
         PROCESSED_DATASET_FILE,
         seq_col=SEQUENCE_COLUMN_NAME,
@@ -312,7 +312,7 @@ def main():
             output_suffix=RNA_OUTPUT_SUFFIX
         )
 
-    print("\n[完成] 全部流程结束。")
+    print("\n[Complete] The entire process is finished.")
 
 
 if __name__ == "__main__":

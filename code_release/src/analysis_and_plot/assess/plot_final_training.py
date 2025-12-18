@@ -2,24 +2,24 @@
 """
 plot_final_training.py
 
-用途：
-  从“完整训练（final training）”阶段的输出文件中绘制论文所需图表，并统一保存为 PNG 与 SVG（dpi=400）。
+Purpose:
+  Generate charts required for the paper from output files of the "final training" phase, saving them uniformly as PNG and SVG files (dpi=400).
 
-输入文件（请在下方 INPUT 手动指定所在目录 EXP_DIR）：
-  - training_curve_final.csv                # 逐 epoch 的 train/val 指标
-  - learning_rate_schedule_final.csv        # 逐 epoch 的学习率
-  - val_predictions_final.csv               # 最优模型在验证集上的预测（若主程序成功保存）
-  - final_test_predictions.csv              # 最优模型在测试集上的预测（含 sequence/true/pred）
-  - final_test_metrics.json                 # 测试集汇总指标（若存在）
+Input files (manually specify the directory EXP_DIR below in INPUT):
+  - training_curve_final.csv                # Train/val metrics per epoch
+  - learning_rate_schedule_final.csv        # Learning rate per epoch
+  - val_predictions_final.csv               # Optimal model predictions on validation set (if successfully saved by main programme)
+  - final_test_predictions.csv              # Optimal model predictions on test set (includes sequence/true/pred)
+  - final_test_metrics.json                 # Aggregated test set metrics (if available)
 
-输出目录结构（自动创建）：
-  <项目根>/result/plot/finaltrain_plot/<时间戳>/*.png|*.svg
-  同时额外导出部分中间统计 csv（如分箱校准、误差-序列长度分析）。
+Output directory structure (automatically generated):
+  <project root>/result/plot/finaltrain_plot/<timestamp>/*.png|*.svg
+  Additionally exports selected intermediate statistics CSV files (e.g., bin calibration, error-sequence length analysis).
 
-注意：
-  1) 不使用命令行传参；请直接在 INPUT 中手动填写 EXP_DIR。
-  2) train 与 val 的 loss 曲线分别单图绘制（满足你之前的要求）。
-  3) 校准图默认 10 个等分箱，可在 CONFIG 中调整。
+Note:
+  1) Do not use command-line arguments; manually specify EXP_DIR within INPUT.
+  2) Loss curves for train and val are plotted separately (as per your previous requirement).
+  3) Calibration plots default to 10 equally spaced bins, adjustable via CONFIG.
 """
 
 import os
@@ -32,36 +32,35 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
-# ============== 用户需手动指定 ==============
+# ============== Users must manually specify ==============
 INPUT = {
-    # >>> 请将此处改为你“最终训练阶段”那一轮实验输出目录（包含 training_curve_final.csv 等）
-    # 例如：r"D:\project\runs_transformer_accumulation\test_withsavedata_20251010_01\tensorboard-log\..\.."  # 示例
+    # Please replace this section with the output directory for your "final training phase" round of experiments (including files such as training_curve_final.csv).
     "EXP_DIR": r"F:\mRNA_Project\3UTR\Paper\result\singlemain_v100_20251015_01"
 }
 # ==========================================
 
 
-# ============== 通用配置 ==============
+# ============== General Configuration ==============
 CONFIG = {
     "dpi": 400,
-    "deciles": 20,             # 校准图与长度分箱默认分成 10 份
+    "deciles": 20,             # Calibration charts and length bins are divided into 10 segments by default.
     "scatter_alpha": 0.6,
     "figsize": (6, 4.5),
-    "bins_hist": 30            # 残差直方图柱数
+    "bins_hist": 30            # Number of residual histogram bars
 }
 # =====================================
 
 
 def _project_root_from_script() -> str:
-    """脚本所在目录的上一级作为项目根。"""
+    """The directory immediately above the script's location serves as the project root."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.dirname(script_dir)
 
 
 def _ensure_outdir(subname: str = "finaltrain_plot") -> str:
     """
-    在 <项目根>/result/plot/ 下创建 finaltrain_plot/<时间戳> 目录。
-    返回该时间戳目录路径。
+    Create a directory named `finaltrain_plot/<timestamp>` under `<project root>/result/plot/`.
+    Return the path to this timestamp directory.
     """
     project_root = _project_root_from_script()
     base = os.path.join(project_root, "result", "plot", subname)
@@ -72,7 +71,7 @@ def _ensure_outdir(subname: str = "finaltrain_plot") -> str:
 
 
 def _save_figure(fig: plt.Figure, outdir: str, name: str, dpi: int):
-    """同时保存 PNG 和 SVG（dpi=400）。"""
+    """Simultaneously save as PNG and SVG (dpi=400)."""
     png_path = os.path.join(outdir, f"{name}.png")
     svg_path = os.path.join(outdir, f"{name}.svg")
     fig.savefig(png_path, dpi=dpi, bbox_inches="tight")
@@ -83,7 +82,7 @@ def _save_figure(fig: plt.Figure, outdir: str, name: str, dpi: int):
 def _safe_read_csv(path: str) -> pd.DataFrame | None:
     if os.path.exists(path):
         return pd.read_csv(path)
-    print(f"[警告] 文件不存在，跳过：{path}")
+    print(f"[Warning] File does not exist, skipping:{path}")
     return None
 
 
@@ -91,17 +90,17 @@ def _safe_read_json(path: str) -> dict | None:
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    print(f"[警告] 文件不存在，跳过：{path}")
+    print(f"[Warning] File does not exist, skipping:{path}")
     return None
 
 
 def plot_losses_separate(curve: pd.DataFrame, outdir: str, dpi: int):
-    """分别绘制 train_loss 和 val_loss（单图单曲线）。"""
+    """Plot train_loss and val_loss separately (single graph, single curve)."""
     if not {"epoch", "train_loss", "val_loss"}.issubset(curve.columns):
-        print("[跳过] training_curve_final.csv 缺少必需列：epoch/train_loss/val_loss")
+        print("[Skip] training_curve_final.csv Missing required columns：epoch/train_loss/val_loss")
         return
 
-    # Train loss（单图）
+    # Train loss（Single image）
     fig, ax = plt.subplots(figsize=CONFIG["figsize"])
     ax.plot(curve["epoch"], curve["train_loss"], marker="o", linewidth=1.5)
     ax.set_xlabel("Epoch")
@@ -110,7 +109,7 @@ def plot_losses_separate(curve: pd.DataFrame, outdir: str, dpi: int):
     ax.grid(True, linestyle="--", alpha=0.4)
     _save_figure(fig, outdir, "final_train_loss_per_epoch", dpi)
 
-    # Val loss（单图）
+    # Val loss（Single image）
     fig, ax = plt.subplots(figsize=CONFIG["figsize"])
     ax.plot(curve["epoch"], curve["val_loss"], marker="o", linewidth=1.5)
     ax.set_xlabel("Epoch")
@@ -121,7 +120,7 @@ def plot_losses_separate(curve: pd.DataFrame, outdir: str, dpi: int):
 
 
 def plot_val_metrics(curve: pd.DataFrame, outdir: str, dpi: int):
-    """绘制验证集各类指标（R2、MSE、相关系数）。"""
+    """Plotting various metrics for the validation set（R2、MSE、correlation coefficient）。"""
     # R2
     if {"epoch", "val_r2"}.issubset(curve.columns):
         fig, ax = plt.subplots(figsize=CONFIG["figsize"])
@@ -161,7 +160,7 @@ def plot_val_metrics(curve: pd.DataFrame, outdir: str, dpi: int):
 
 def plot_lr_schedule(lr_df: pd.DataFrame, outdir: str, dpi: int):
     if not {"epoch", "lr"}.issubset(lr_df.columns):
-        print("[跳过] learning_rate_schedule_final.csv 缺少列 epoch/lr")
+        print("[Skip] learning_rate_schedule_final.csv Missing column epoch/lr")
         return
     fig, ax = plt.subplots(figsize=CONFIG["figsize"])
     ax.plot(lr_df["epoch"], lr_df["lr"], marker="o", linewidth=1.5)
@@ -173,8 +172,8 @@ def plot_lr_schedule(lr_df: pd.DataFrame, outdir: str, dpi: int):
 
 
 def _scatter_parity(true_y: np.ndarray, pred_y: np.ndarray, title: str, outpath_prefix: str, dpi: int):
-    """通用：真实 vs 预测 散点 + y=x 参考线 + 基本统计。"""
-    # 统计
+    """General: Actual vs Forecast Scatter Plot + y=x Reference Line + Basic Statistics."""
+    # Statistics
     resid = pred_y - true_y
     mae = np.mean(np.abs(resid))
     rmse = math.sqrt(np.mean(resid**2))
@@ -191,7 +190,7 @@ def _scatter_parity(true_y: np.ndarray, pred_y: np.ndarray, title: str, outpath_
     ax.set_ylabel("Predicted")
     ax.set_title(title)
     ax.grid(True, linestyle="--", alpha=0.4)
-    # 角落标注
+    # Corner annotation
     ax.text(0.04, 0.96, f"MAE={mae:.3f}\nRMSE={rmse:.3f}\nR²={r2:.3f}",
             transform=ax.transAxes, va="top", ha="left", fontsize=9)
     fig.tight_layout()
@@ -202,10 +201,10 @@ def plot_val_parity(val_pred_csv: str, outdir: str, dpi: int):
     df = _safe_read_csv(val_pred_csv)
     if df is None:
         return
-    # 兼容含/不含 sequence 的两种情况
+    # Compatible with both cases: containing sequence and not containing sequence
     needed = {"true", "pred"}
     if not needed.issubset(df.columns):
-        print(f"[跳过] {val_pred_csv} 不包含 true/pred 列")
+        print(f"[Skip] {val_pred_csv} Excludes the true/pred column")
         return
     _scatter_parity(
         df["true"].to_numpy(dtype=float),
@@ -221,7 +220,7 @@ def plot_test_parity_and_residuals(test_pred_csv: str, outdir: str, dpi: int):
     if df is None:
         return
     if not {"true", "pred"}.issubset(df.columns):
-        print(f"[跳过] {test_pred_csv} 不包含 true/pred 列")
+        print(f"[Skip] {test_pred_csv} Excludes the true/pred column")
         return
 
     # 1) Parity
@@ -233,7 +232,7 @@ def plot_test_parity_and_residuals(test_pred_csv: str, outdir: str, dpi: int):
         dpi
     )
 
-    # 2) 残差直方图（与主程序 residual 定义一致：true - pred）
+    # 2) Residual histogram (consistent with the definition of residual in the main programme):true - pred）
     df["residual"] = df["true"].astype(float) - df["pred"].astype(float)
     fig, ax = plt.subplots(figsize=CONFIG["figsize"])
     ax.hist(df["residual"].to_numpy(), bins=CONFIG["bins_hist"])
@@ -243,22 +242,22 @@ def plot_test_parity_and_residuals(test_pred_csv: str, outdir: str, dpi: int):
     ax.grid(True, linestyle="--", alpha=0.4)
     _save_figure(fig, outdir, "final_test_residual_hist", dpi)
 
-    # 3) 误差-序列长度关系（若有 sequence）
+    # 3) Error-Sequence Length Relationship (if sequence exists)
     if "sequence" in df.columns:
         df["seq_len"] = df["sequence"].astype(str).map(len)
         df["abs_error"] = np.abs(df["residual"])
-        # 用等分位分箱（默认 10）
+        # Partition into equal-sized bins (default 10)
         try:
             df["len_bin"] = pd.qcut(df["seq_len"], q=CONFIG["deciles"], duplicates="drop")
         except ValueError:
-            # 样本过少或长度重复导致无法 qcut，则退回等宽分箱
+            # Insufficient sample size or length repetition resulted in an inability to qcut，Then revert to equal-width boxes.
             df["len_bin"] = pd.cut(df["seq_len"], bins=CONFIG["deciles"])
         grp = df.groupby("len_bin", observed=True).agg(
             mean_len=("seq_len", "mean"),
             mean_abs_err=("abs_error", "mean"),
             count=("abs_error", "size")
         ).reset_index(drop=True)
-        # 保存表
+        # Save table
         grp.to_csv(os.path.join(outdir, "final_test_error_vs_length.csv"), index=False)
 
         fig, ax = plt.subplots(figsize=CONFIG["figsize"])
@@ -282,19 +281,19 @@ def plot_test_parity_and_residuals(test_pred_csv: str, outdir: str, dpi: int):
 
 
 def plot_test_calibration(test_pred_csv: str, outdir: str, dpi: int):
-    """基于测试集 10 等分箱的校准曲线：x=分箱平均预测，y=分箱平均真实，参考线 y=x。"""
+    """Calibration curve based on 10 equal-partition bins of the test set: x = bin average prediction, y = bin average actual, reference line y = x."""
     df = _safe_read_csv(test_pred_csv)
     if df is None:
         return
     if not {"true", "pred"}.issubset(df.columns):
-        print(f"[跳过] {test_pred_csv} 不包含 true/pred 列")
+        print(f"[Skip] {test_pred_csv} Excludes the true/pred column")
         return
 
-    # 10 等分箱（可在 CONFIG 中调整）
+    # 10-partition box (adjustable in CONFIG)
     try:
         df["bin"] = pd.qcut(df["pred"].astype(float), q=CONFIG["deciles"], labels=False, duplicates="drop")
     except ValueError:
-        print("[提示] 样本过少或预测重复值集中，改用等宽分箱。")
+        print("[Presentation] When the sample size is too small or predicted values cluster, switch to equal-width binning.")
         df["bin"] = pd.cut(df["pred"].astype(float), bins=CONFIG["deciles"], labels=False, include_lowest=True)
 
     calib = df.groupby("bin", observed=True).agg(
@@ -304,7 +303,7 @@ def plot_test_calibration(test_pred_csv: str, outdir: str, dpi: int):
         mae=("pred", lambda x: np.mean(np.abs(x.to_numpy() - df.loc[x.index, "true"].to_numpy())))
     ).reset_index(drop=True)
 
-    # 防止零除
+    # Prevent division by zero
     true_vals = df["true"].astype(float).to_numpy()
     pred_vals = df["pred"].astype(float).to_numpy()
     eps = 1e-12
@@ -331,46 +330,46 @@ def plot_test_calibration(test_pred_csv: str, outdir: str, dpi: int):
 def main():
     exp_dir = os.path.normpath(INPUT["EXP_DIR"])
     if not os.path.isdir(exp_dir):
-        raise NotADirectoryError(f"EXP_DIR 不存在或不是文件夹：{exp_dir}")
+        raise NotADirectoryError(f"EXP_DIR Does not exist or is not a folder:{exp_dir}")
 
     outdir = _ensure_outdir("finaltrain_plot")
-    print(f"[输出目录] {outdir}")
+    print(f"[Output Directory] {outdir}")
 
-    # -------- 读取文件路径 --------
+    # -------- Read file path --------
     curve_csv = os.path.join(exp_dir, "training_curve_final.csv")
     lr_csv    = os.path.join(exp_dir, "learning_rate_schedule_final.csv")
     val_csv   = os.path.join(exp_dir, "val_predictions_final.csv")
     test_csv  = os.path.join(exp_dir, "final_test_predictions.csv")
-    test_json = os.path.join(exp_dir, "final_test_metrics.json")  # 可选
+    test_json = os.path.join(exp_dir, "final_test_metrics.json")  # Optional
 
-    # -------- 训练/验证曲线 --------
+    # -------- Training/Validation Curve --------
     curve_df = _safe_read_csv(curve_csv)
     if curve_df is not None and "epoch" in curve_df.columns:
         plot_losses_separate(curve_df, outdir, CONFIG["dpi"])
         plot_val_metrics(curve_df, outdir, CONFIG["dpi"])
     else:
-        print("[跳过] 无法绘制 loss/val 指标曲线（缺失或无 epoch 列）")
+        print("[Skip] Unable to plot loss/val metric curves (missing or no epoch column)")
 
-    # -------- 学习率曲线 --------
+    # -------- Learning rate curve --------
     lr_df = _safe_read_csv(lr_csv)
     if lr_df is not None:
         plot_lr_schedule(lr_df, outdir, CONFIG["dpi"])
 
-    # -------- 验证集 Parity（若有）--------
+    # -------- Validation Set Parity (if applicable)--------
     if os.path.exists(val_csv):
         plot_val_parity(val_csv, outdir, CONFIG["dpi"])
 
-    # -------- 测试集 Parity/残差/分布/长度误差 --------
+    # -------- Test Set Parity/Residual/Distribution/Length Error --------
     if os.path.exists(test_csv):
         plot_test_parity_and_residuals(test_csv, outdir, CONFIG["dpi"])
         plot_test_calibration(test_csv, outdir, CONFIG["dpi"])
     else:
-        print("[跳过] 未找到 final_test_predictions.csv，无法绘制测试集相关图。")
+        print("[Skip] final_test_predictions.csv was not found; the test set correlation plot cannot be generated.")
 
-    # -------- 记录测试指标 JSON（若存在）--------
+    # -------- Record test metrics JSON (if present)--------
     metrics = _safe_read_json(test_json)
     if metrics:
-        # 生成一个简单的指标条形图（便于论文中展示对比）
+        # Generate a simple metric bar chart (for easy comparison in the paper)
         keys = ["test_r2", "test_pearson", "test_spearman"]
         present = [k for k in keys if k in metrics]
         if present:
@@ -380,7 +379,7 @@ def main():
             ax.grid(True, axis="y", linestyle="--", alpha=0.4)
             _save_figure(fig, outdir, "final_test_summary_metrics_bar", CONFIG["dpi"])
 
-    print("[完成] 完整训练阶段图表已输出。")
+    print("[Completed] The complete training phase chart has been output.。")
 
 
 if __name__ == "__main__":

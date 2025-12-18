@@ -1,18 +1,18 @@
 # plots/plot_positional_effects_relative_fp32_cached.py
 # -*- coding: utf-8 -*-
 """
-位置效应（相对）曲线： rΔ = (baseline − occluded) / baseline
-✅ 全精度（FP32）、✅ 全过程缓存、✅ 断点续跑、✅ 聚合-only 模式
-⚙️ 已改为**无 chunk**版本：不依赖 collate_fn_chunking / chunks_per_sample，
-   模型前向统一为 model(input_ids, attention_mask)，并优先复用主脚本的 collate_fn_no_chunk。
+Position Effect (Relative) Curve: rΔ = (baseline − occluded) / baseline
+ Full precision (FP32),  Full-process caching,  Checkpointing,  Aggregation-only mode
+ Modified to **chunk-free** version: no longer relies on collate_fn_chunking / chunks_per_sample,
+   model forward unified to model(input_ids, attention_mask), prioritising reuse of collate_fn_no_chunk from main script.
 
-输出到：
-  - 缓存：<project>/result/cache/positional_effects_rel/<RUN_NAME>/
-      baseline.csv  （每条样本的基线预测 + 长度 + md5）
-      occl/seq_XXXXXX.csv （该样本的每个窗口：start, center, occ_pred, delta, rel）
-      meta.json     （关键配置快照）
-  - 图表：<project>/result/plot/positional_effects_rel/<timestamp>/
-      曲线/条形图/Top-K 热图（PNG+SVG, dpi=400）+ 对应 CSV
+Output to:
+  - Cache: <project>/result/cache/positional_effects_rel/<RUN_NAME>/
+      baseline.csv (baseline prediction + length + md5 for each sample)
+      occl/seq_XXXXXX.csv (start, centre, occ_pred, delta, rel for each window of this sample)
+      meta.json     (snapshot of key configurations)
+  - Visualisations: <project>/result/plot/positional_effects_rel/<timestamp>/
+      Curves/Bar charts/Top-K heatmaps (PNG+SVG, dpi=400) + corresponding CSV
 """
 
 import os, sys, math, re, json, hashlib, importlib.util, types, time
@@ -34,69 +34,70 @@ import torch
 from torch.utils.data import Dataset
 
 class _SeqDS(Dataset):
-    """顶层 Dataset，Windows 多进程可 pickle；用于无 chunk 推理"""
+    """Top-level Dataset, Windows multi-process pickleable; used for chunkless inference"""
     def __init__(self, seqs):
         self.seqs = seqs
     def __len__(self):
         return len(self.seqs)
     def __getitem__(self, idx):
-        # 推理不需真实 target，但为了复用训练版 collate，给个占位 0.0
+        # Inference does not require a real target, but to reuse the training collate, provide a placeholder 0.0.
         return {"sequence": self.seqs[idx],
                 "target": torch.tensor(0.0, dtype=torch.float)}
 
 
-# ==== 离线 & CUDA 内存策略 ====
+# ==== Offline & CUDA Memory Strategy ====
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# ========= 在此手动填写（请改成你机器上的绝对路径）=========
+# ========= Please fill in manually here=========
 CONFIG = {
-    # 你的主训练脚本（包含 Config、ChunkingMRNATransformer、get_device；若含 collate_fn_no_chunk 会被优先使用）
+    # Your main training script (containing Config, ChunkingMRNATransformer, get_device; if collate_fn_no_chunk is
+    # included, it will be prioritised)
     "MODEL_CODE_PATH": r"F:\mRNA_Project\3UTR\Paper\script\5f_full_head_v3.py",
 
-    # 完整训练输出目录（需含 final_test_predictions.csv -> 提供 sequence）
+    # Complete training output directory (must contain final_test_predictions.csv -> providing sequences)
     "RUN_DIR": r"F:\mRNA_Project\3UTR\Paper\result\5f_full_head_v3_20251024_01",
 
-    # 任务权重（.pth）
+    # Task Weight (.pth)
     "CKPT_PATH": r"F:\mRNA_Project\3UTR\Paper\result\5f_full_head_v3_20251024_01\best_model_final.pth",
 
-    # 本地 tokenizer / RnaFmModel 目录
+    # Local tokeniser / RnaFmModel directory
     "LOCAL_TOKENIZER_DIR": r"F:\mRNA_Project\3UTR\Paper\script\model\rna-fm",
     "LOCAL_RNAFM_DIR": r"F:\mRNA_Project\3UTR\Paper\script\model\rna-fm",
 
-    # 可选项目根（用于解析相对路径；留空则用脚本上一级）
+    # Optional root directory (for resolving relative paths; if left blank, the parent directory of the script is used)
     "BASE_DIR": r"",
 
-    # 模式： "all"（计算+聚合出图）、"compute_only"（只算缓存）、"aggregate_only"（只读缓存出图）
+    # Mode: "all" (compute + aggregate output), "compute_only" (compute cache only), "aggregate_only" (read-only cache output)
     "MODE": "all",
 
-    # 缓存设置
+    # Cache Settings
     "CACHE_ROOT": r"result/cache/positional_effects_rel",
-    "RUN_NAME": "",    # 若留空，将自动组合成 W{W}_S{S}_full/n{N}
+    "RUN_NAME": "",    # If left blank, it will be automatically combined into W{W}_S{S}_full/n{N}
 
-    # Occlusion 设置
-    "SUBSET_N":200,        # None=全量；也可设更大数，比如 5000/10000
+    # Occlusion Settings
+    "SUBSET_N":200,        # None=Full volume; a larger number may also be set, for example 5000/10000
     "WINDOW_SIZE": 15,
     "WINDOW_STEP": 5,
     "FILL_CHAR": "N",
 
-    # 推理
-    "BATCH_SIZE": 16,        # 显存足够可增大；脚本遇到 OOM 会自动减半重试
+    # Deduction
+    "BATCH_SIZE": 16,        # Graphics memory can be increased if sufficient; Scripts encountering OOM will automatically halve and retry.
     "SEED": 42,
 
-    # 归一化分箱
+    # Normalised binning
     "NORM_POS_BINS": 50,
 
-    # Top-K 热图（代表性样本）
+    # Top-K Heatmap (representative sample)
     "TOP_HEATMAP_K": 12,
 
-    # （可选）长度分层
+    # (Optional) Length stratification
     "DO_LENGTH_STRATA": False,
     "LENGTH_BINS_ABS": None,
     "LENGTH_QUANTILES": [0.0, 0.33, 0.66, 1.0],
 
-    # 作图
+    # Plotting
     "DPI": 400,
     "FIGSIZE_CURVE": (6.4, 4.6),
     "FIGSIZE_HEATMAP": (8.0, 4.8),
@@ -105,7 +106,7 @@ CONFIG = {
 }
 # =================================
 
-# ---- 统一字体：非斜体 ----
+
 matplotlib.rcParams.update({
     "font.family": "sans-serif",
     "font.sans-serif": ["DejaVu Sans", "Arial", "Liberation Sans", "Noto Sans CJK SC"],
@@ -115,20 +116,14 @@ matplotlib.rcParams.update({
     "axes.unicode_minus": False,
 })
 
-# 确保所有操作完成后再关机
-def safe_shutdown():
-    print("所有任务已完成，准备关机...")
-    time.sleep(60)  # 再等待60秒确保所有文件操作完成
-    os.system("/usr/bin/shutdown")
-
-# ---------- 路径规范化 ----------
+# ---------- Path Normalisation ----------
 def _is_windows_style(p: str) -> bool:
     return bool(re.match(r"^[A-Za-z]:[\\/]", p or ""))
 
 def _abs_path(p: str) -> str:
     if not p: return ""
     if os.name != "nt" and _is_windows_style(p):
-        raise RuntimeError(f"检测到 Windows 路径：{p}，请改为服务器上的 Linux 绝对路径")
+        raise RuntimeError(f"Windows path detected: {p}. Please change to an absolute Linux path on the server.")
     q = Path(p)
     if q.is_absolute():
         return str(q)
@@ -139,7 +134,7 @@ def _normalize_config_paths():
     for key in ["MODEL_CODE_PATH", "RUN_DIR", "CKPT_PATH", "LOCAL_TOKENIZER_DIR", "LOCAL_RNAFM_DIR", "CACHE_ROOT"]:
         CONFIG[key] = _abs_path(CONFIG[key])
 
-# ---------- 输出目录 ----------
+# ---------- Output directory ----------
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
@@ -153,7 +148,7 @@ def _save_dual(fig, out_base: str, dpi: int):
     fig.savefig(out_base + ".svg", dpi=dpi, bbox_inches="tight")
     plt.close(fig)
 
-# ---------- 缓存目录 ----------
+# ---------- Cache directory ----------
 def _ensure_cache_dir() -> str:
     root = Path(CONFIG["CACHE_ROOT"])
     run_name = CONFIG["RUN_NAME"].strip()
@@ -165,7 +160,7 @@ def _ensure_cache_dir() -> str:
     (cache_dir / "occl").mkdir(parents=True, exist_ok=True)
     return str(cache_dir)
 
-# ---------- 工具 ----------
+# ---------- Tools ----------
 def _md5(s: str) -> str:
     return hashlib.md5(s.encode("utf-8")).hexdigest()
 
@@ -194,16 +189,16 @@ def _interp_to_bins(x_pos: np.ndarray, x_val: np.ndarray, bins: int) -> np.ndarr
     grid = (np.arange(bins) + 0.5) / bins
     return np.interp(grid, x_pos, x_val, left=x_val[0], right=x_val[-1])
 
-# ---------- 动态导入你的训练脚本 ----------
+# ---------- Dynamically import your training script ----------
 def _import_model_module(py_path: str) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location("user_model_code", py_path)
     mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod  # 注册供后续访问
+    sys.modules[spec.name] = mod  # Register for subsequent access
     assert spec.loader is not None
     spec.loader.exec_module(mod)  # type: ignore
     return mod
 
-# ---------- 仅本地加载 tokenizer ----------
+# ---------- Load tokeniser locally only ----------
 def _load_tokenizer_locally(RnaTokenizer, config, model_code_path: str, explicit_dir: Optional[str] = None):
     candidates = []
     if explicit_dir: candidates.append(Path(explicit_dir))
@@ -214,16 +209,16 @@ def _load_tokenizer_locally(RnaTokenizer, config, model_code_path: str, explicit
         if p and p.is_dir():
             try:
                 tok = RnaTokenizer.from_pretrained(str(p), trust_remote_code=True, local_files_only=True)
-                print(f"[Tokenizer] 已从本地加载：{p}")
+                print(f"[Tokenizer] Already loaded from local：{p}")
                 return tok
             except Exception as e:
                 last_err = e
     raise RuntimeError(
-        "未能从本地加载 tokenizer，请设置 LOCAL_TOKENIZER_DIR 或保证 PRETRAINED_MODEL_NAME 指向本地目录。\n"
-        f"最后一次错误：{last_err}"
+        "Failed to load tokeniser locally. Please set LOCAL_TOKENIZER_DIR or ensure PRETRAINED_MODEL_NAME points to a local directory.\n"
+        f"Final error：{last_err}"
     )
 
-# ---------- 权重键名前缀重映射 ----------
+# ---------- Weight Key Name Prefix Remapping ----------
 def _prepare_state_dict_for_model(state_obj, model) -> OrderedDict:
     sd = state_obj
     if isinstance(sd, dict) and "state_dict" in sd and isinstance(sd["state_dict"], dict):
@@ -256,11 +251,11 @@ def _prepare_state_dict_for_model(state_obj, model) -> OrderedDict:
         remapped[k2] = v
     return remapped
 
-# ---------- no-chunk 的 collate（优先复用主脚本；否则本地实现） ----------
+# ---------- collate of no-chunk (preferred reuse of main script; otherwise local implementation) ----------
 def _build_nochunk_collate(mod, tokenizer, config):
     """
-    优先使用主脚本中的 collate_fn_no_chunk；若不存在，则在本地构造等价 no-chunk collate。
-    返回：可直接传入 DataLoader 的 collate_fn。
+    Prioritise the collate_fn_no_chunk from the main script; if absent, construct an equivalent no-chunk collate locally.
+    Returns: A collate_fn suitable for direct use with DataLoader.
     """
     fn = getattr(mod, "collate_fn_no_chunk", None)
     if fn is not None:
@@ -286,11 +281,11 @@ def _build_nochunk_collate(mod, tokenizer, config):
         }
     return _local_collate
 
-# ---------- 全精度推理（自适应小批，无 AMP/TF32），无 chunk 前向 ----------
+# ---------- Full-precision inference (adaptive mini-batches, no AMP/TF32), no chunked forward passes ----------
 def _predict_batch(model, tokenizer, config, device, sequences: List[str], batch_size: int) -> np.ndarray:
     """
-    全精度推理；遇到 OOM 自动把 batch_size 减半重试。
-    前向统一：model(input_ids, attention_mask)；不使用 chunks_per_sample。
+    Full-precision inference; upon encountering an out-of-memory error, automatically halves the batch_size and retries.
+Forward unification: model(input_ids, attention_mask); does not utilise chunks_per_sample.
     """
     import torch
     from torch.utils.data import Dataset, DataLoader
@@ -301,7 +296,6 @@ def _predict_batch(model, tokenizer, config, device, sequences: List[str], batch
         def __getitem__(self, idx):
             return {"sequence": self.seqs[idx], "target": torch.tensor(0.0, dtype=torch.float)}
 
-    # 构造 no-chunk collate（优先用主脚本）
     collate = getattr(config, "_COLLATE_NOCHUNK", None)
     if collate is None:
         collate = _build_nochunk_collate(sys.modules["user_model_code"], tokenizer, config)
@@ -323,7 +317,7 @@ def _predict_batch(model, tokenizer, config, device, sequences: List[str], batch
             end = min(N, i + max(cur_bs, 1))
             subset = sequences[i:end]
 
-            # 优先在 Windows 关闭多进程；Linux 保持 2
+            # Prioritise disabling multi-process on Windows; maintain 2 on Linux.
             workers = 0 if os.name == "nt" else 2
             persist = (workers > 0)
 
@@ -338,7 +332,7 @@ def _predict_batch(model, tokenizer, config, device, sequences: List[str], batch
                 persistent_workers=persist,
             )
 
-            # 兼容性兜底：若仍因 pickling 报错，自动退回单进程
+            # Compatibility fallback: Should pickling errors persist, automatically revert to single-process mode.
             try:
                 iterator = iter(dl)
             except Exception as e:
@@ -363,15 +357,15 @@ def _predict_batch(model, tokenizer, config, device, sequences: List[str], batch
                 for batch in dl:
                     input_ids = batch["input_ids"].to(device, non_blocking=True)
                     attention_mask = batch["attention_mask"].to(device, non_blocking=True)
-                    # 无 AMP、FP32 前向；输出是 log1p 半衰期
+                    # No AMP, FP32 forward pass; output is log1p half-life
                     out = model(input_ids, attention_mask)
-                    part.append(np.expm1(out.detach().cpu().numpy()))  # 还原原尺度
+                    part.append(np.expm1(out.detach().cpu().numpy()))  # Restore to original scale
                     del out, input_ids, attention_mask
             except torch.cuda.OutOfMemoryError:
                 ok = False
                 torch.cuda.empty_cache()
                 cur_bs = max(1, cur_bs // 2)
-                print(f"[OOM] 降低 batch_size → {cur_bs} 并重试（i={i}）")
+                print(f"[OOM] reduce batch_size → {cur_bs} and retry（i={i}）")
 
             if ok:
                 preds_all.append(np.concatenate(part, axis=0) if part else np.zeros((0,), dtype=float))
@@ -379,14 +373,14 @@ def _predict_batch(model, tokenizer, config, device, sequences: List[str], batch
 
     return np.concatenate(preds_all, axis=0) if preds_all else np.zeros((0,), dtype=float)
 
-# ---------- 读取/准备序列 ----------
+# ---------- Read/Prepare Sequence ----------
 def _load_sequences() -> List[str]:
     fp = os.path.join(CONFIG["RUN_DIR"], "final_test_predictions.csv")
     if not Path(fp).is_file():
-        raise FileNotFoundError(f"未找到 {fp}")
+        raise FileNotFoundError(f"Not found {fp}")
     df_all = pd.read_csv(fp)
     if "sequence" not in df_all.columns:
-        raise ValueError(f"{fp} 缺少 'sequence' 列")
+        raise ValueError(f"{fp} The 'sequence' column is missing.")
     df_all = df_all.dropna(subset=["sequence"]).copy()
     df_all["sequence"] = df_all["sequence"].astype(str)
     seqs_all = df_all["sequence"].tolist()
@@ -401,10 +395,10 @@ def _load_sequences() -> List[str]:
         seqs = seqs_all
     return seqs
 
-# ---------- 计算 + 缓存（无 chunk） ----------
+# ---------- Computing + Caching (without chunking) ----------
 def compute_and_cache(cache_dir: str):
     print("[cache dir]", cache_dir)
-    # 导入你的训练模块
+    # Import your training module
     mod = _import_model_module(CONFIG["MODEL_CODE_PATH"])
     Config = mod.Config
     ChunkingMRNATransformer = mod.ChunkingMRNATransformer
@@ -412,9 +406,9 @@ def compute_and_cache(cache_dir: str):
     try:
         from multimolecule import RnaTokenizer
     except Exception as e:
-        raise ImportError("无法从 multimolecule 导入 RnaTokenizer，请在相同环境运行。") from e
+        raise ImportError("Unable to import RnaTokenizer from multimolecule. Please run in the same environment.") from e
 
-    # 初始化设备/模型
+    # Initialise device/model
     import torch
     config = Config()
     device = get_device()
@@ -423,42 +417,41 @@ def compute_and_cache(cache_dir: str):
         model_code_path=CONFIG["MODEL_CODE_PATH"],
         explicit_dir=(CONFIG.get("LOCAL_TOKENIZER_DIR") or None)
     )
-    # 将 PRETRAINED_MODEL_NAME 指向本地 RnaFmModel 目录
+    # Direct PRETRAINED_MODEL_NAME to the local RnaFmModel directory
     local_model_dir = CONFIG.get("LOCAL_RNAFM_DIR") or ""
     if not Path(local_model_dir).is_dir():
         cand = Path(CONFIG["MODEL_CODE_PATH"]).parent / str(config.PRETRAINED_MODEL_NAME)
         if cand.is_dir():
             local_model_dir = str(cand.resolve())
         else:
-            raise RuntimeError("未找到本地 RnaFmModel 目录，请设置 LOCAL_RNAFM_DIR。")
+            raise RuntimeError("The local RnaFmModel directory was not found. Please set LOCAL_RNAFM_DIR.")
     config.PRETRAINED_MODEL_NAME = local_model_dir
-    print(f"[Model] 使用本地 RnaFmModel 目录：{config.PRETRAINED_MODEL_NAME}")
+    print(f"[Model] Using the local RnaFmModel directory:{config.PRETRAINED_MODEL_NAME}")
 
-    # 绑定 no-chunk collate（优先主脚本）
     config._COLLATE_NOCHUNK = _build_nochunk_collate(mod, tokenizer, config)
-    print("[collate] 已准备：no-chunk 版本")
+    print("[collate] Prepared: no-chunk version")
 
     model = ChunkingMRNATransformer(config).to(device)
     ckpt = CONFIG["CKPT_PATH"]
     if not Path(ckpt).is_file():
-        raise FileNotFoundError(f"未找到权重：{ckpt}")
+        raise FileNotFoundError(f"Weight not found：{ckpt}")
     state = torch.load(ckpt, map_location=device)
     cleaned = _prepare_state_dict_for_model(state, model)
     model.load_state_dict(cleaned, strict=False)
-    print(f"[OK] 已加载权重（兼容性映射后）：{ckpt}")
+    print(f"[OK] Weights loaded (post-compatibility mapping):{ckpt}")
 
-    # 读取序列
+    # Read sequence
     seqs = _load_sequences()
-    print(f"[样本数] 用于 occlusion 的序列：{len(seqs)}")
+    print(f"[Sample size] Sequence for occlusion:{len(seqs)}")
 
-    # 遮挡字符
+    # masking characters
     fill_char = str(CONFIG["FILL_CHAR"]).upper()
-    allowed = set("ACGTUNRYSMWKBDHVX.-*I")  # IUPAC + 常见扩展
+    allowed = set("ACGTUNRYSMWKBDHVX.-*I")  # IUPAC + Common extensions
     if len(fill_char) != 1 or fill_char not in allowed:
-        raise ValueError(f"非法 FILL_CHAR='{fill_char}'；请使用 IUPAC 字母之一（如 N、A、C、G、U 等）")
-    print(f"[遮挡字符] 使用：{fill_char}")
+        raise ValueError(f"Illegal FILL_CHAR='{fill_char}'；Please use one of the IUPAC letters (such as N, A, C, G, U, etc.)")
+    print(f"[masking characters] Use：{fill_char}")
 
-    # meta 保存
+    # meta Save
     meta = {
         "WINDOW_SIZE": CONFIG["WINDOW_SIZE"],
         "WINDOW_STEP": CONFIG["WINDOW_STEP"],
@@ -475,12 +468,12 @@ def compute_and_cache(cache_dir: str):
     }
     _write_json(Path(cache_dir) / "meta.json", meta)
 
-    # 基线预测（若 baseline.csv 存在将复用）
+    # Baseline forecast (reuses baseline.csv if present)
     baseline_fp = Path(cache_dir) / "baseline.csv"
     if baseline_fp.exists():
         dfb = pd.read_csv(baseline_fp)
         base_pred = dfb["base_pred"].values.astype(float)
-        print(f"[baseline] 复用已有：{baseline_fp} (n={len(dfb)})")
+        print(f"[baseline] Reuse existing:{baseline_fp} (n={len(dfb)})")
     else:
         base_pred = _predict_batch(model, tokenizer, config, device, seqs, CONFIG["BATCH_SIZE"])
         dfb = pd.DataFrame({
@@ -488,19 +481,19 @@ def compute_and_cache(cache_dir: str):
             "length": [len(s) for s in seqs],
             "seq_md5": [ _md5(s) for s in seqs ],
             "base_pred": base_pred,
-            # 若需保留原序列，解除下一行注释（体积会较大）
+            # If the original sequence is to be retained, uncomment the next line (note that this will result in a larger file size).
             # "sequence": seqs,
         })
         dfb.to_csv(baseline_fp, index=False)
-        print(f"[baseline] 已保存：{baseline_fp}")
+        print(f"[baseline] Saved：{baseline_fp}")
 
-    # 每条样本的窗口预测与相对效应（逐条落盘，可断点续跑）
+    # Window prediction and relative effects for each sample (processed sequentially, with support for resuming from breakpoints)
     W = int(CONFIG["WINDOW_SIZE"]); S = int(CONFIG["WINDOW_STEP"])
     occl_dir = Path(cache_dir) / "occl"
     for i, seq in enumerate(seqs):
         occ_i = occl_dir / f"seq_{i:06d}.csv"
         if occ_i.exists():
-            continue  # 断点续跑：已有则跳过
+            continue  # Resume from breakpoint: Skip if already present
         L = len(seq)
         if L < W:
             pd.DataFrame(columns=["start","center","occ_pred","delta","rel"]).to_csv(occ_i, index=False)
@@ -524,25 +517,25 @@ def compute_and_cache(cache_dir: str):
         })
         dfo.to_csv(occ_i, index=False)
 
-    print("[compute] 所有样本的遮挡结果已缓存完毕：", cache_dir)
+    print("[compute] Occlusion results for all samples have been cached:", cache_dir)
 
-# ---------- 聚合&出图（从缓存读取，不做推理） ----------
+# ---------- Aggregation & Image Generation (read from cache, no inference performed) ----------
 def aggregate_and_plot_from_cache(cache_dir: str):
-    print("[aggregate] 读取缓存：", cache_dir)
+    print("[aggregate] Read cache：", cache_dir)
     meta = json.loads(Path(cache_dir, "meta.json").read_text(encoding="utf-8"))
     W = int(meta["WINDOW_SIZE"]); S = int(meta["WINDOW_STEP"])
     BINS = int(CONFIG["NORM_POS_BINS"])
     outdir = _ensure_plot_outdir(CONFIG["SAVE_SUBDIR"])
-    print("[输出目录]", outdir)
+    print("[Output directory]", outdir)
 
-    # 读取 baseline
+    # Read baseline
     dfb = pd.read_csv(Path(cache_dir) / "baseline.csv")
     N = len(dfb)
     print(f"[baseline] n={N}")
 
-    # 汇总到 bins（相对效应）
+    # Aggregated into bins (relative effect)
     bin_rel_effects: List[List[float]] = [[] for _ in range(BINS)]
-    # 也构建 Top-K 矩阵（插值到固定 bins）
+    # Also construct a Top-K matrix (interpolated to fixed bins)
     rows_interp = []
     lengths = dfb["length"].values.astype(int)
 
@@ -555,15 +548,15 @@ def aggregate_and_plot_from_cache(cache_dir: str):
             continue
         centers = dfo["center"].values.astype(float)
         rel = dfo["rel"].values.astype(float)
-        # 写入 bin 容器
+        # Write to the bin container
         for r, c in zip(rel, centers):
             if not np.isnan(r):
                 bin_rel_effects[_bin_index(float(c), BINS)].append(float(r))
-        # 供 heatmap 使用：插值到 BINS
+        # For use with heatmaps: Interpolate to BINS
         rows_interp.append(_interp_to_bins(centers, np.nan_to_num(rel, nan=0.0), BINS))
     mat = np.vstack(rows_interp) if len(rows_interp) else np.zeros((0, BINS), dtype=float)
 
-    # === 全体 rΔ 曲线 ===
+    # === All rΔ curves ===
     x_centers = (np.arange(BINS) + 0.5) / BINS
     mean_rel, lo_rel, hi_rel = [], [], []
     for b in range(BINS):
@@ -594,7 +587,7 @@ def aggregate_and_plot_from_cache(cache_dir: str):
         title=f"Relative positional effect (FP32, W={W}, step={S}, n={N})"
     )
 
-    # === 区段均值条形图（含95%CI与显著性） ===
+    # === Segment Mean Bar Chart (with 95% Confidence Interval and Significance) ===
     seg_edges = np.array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
     seg_labels = ["0–0.2", "0.2–0.4", "0.4–0.6", "0.6–0.8", "0.8–1.0"]
     seg_vals = [[] for _ in range(len(seg_labels))]
@@ -640,7 +633,7 @@ def aggregate_and_plot_from_cache(cache_dir: str):
         os.path.join(outdir, "positional_effect_relative_segments_fp32_from_cache.csv"), index=False
     )
 
-    # === Top-K rΔ 热图 ===
+    # === Top-K rΔ Heatmap ===
     if mat.size:
         row_score = np.nanmean(mat, axis=1)
         order = np.argsort(-row_score)
@@ -661,9 +654,9 @@ def aggregate_and_plot_from_cache(cache_dir: str):
                     dpi=CONFIG["DPI"], bbox_inches="tight")
         plt.close(fig)
 
-    # === （可选）长度分层 ===
+    # === (Optional) Length stratification ===
     if CONFIG.get("DO_LENGTH_STRATA", False) and mat.size:
-        # 构建阈值
+        # Establishing a threshold
         bins_abs = CONFIG.get("LENGTH_BINS_ABS", None)
         if bins_abs is None:
             qs = CONFIG.get("LENGTH_QUANTILES", [0.0, 0.33, 0.66, 1.0])
@@ -709,9 +702,9 @@ def aggregate_and_plot_from_cache(cache_dir: str):
             fig.savefig(os.path.join(outdir, stem + ".svg"), dpi=CONFIG["DPI"], bbox_inches="tight")
             plt.close(fig)
 
-    print("[完成] 已从缓存聚合并出图：", outdir)
+    print("[Completed] The image has been generated from the cached merge.：", outdir)
 
-# ---------- 主流程 ----------
+# ---------- Main process ----------
 def main():
     _normalize_config_paths()
     cache_dir = _ensure_cache_dir()
@@ -724,4 +717,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    safe_shutdown()

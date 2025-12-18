@@ -1,29 +1,29 @@
 # plots/plot_cv.py
 # -*- coding: utf-8 -*-
 """
-五折交叉验证绘图（与主程序输出严格对齐，路径在代码中手动填写）：
-- 输出位置：脚本所在目录的同级 result/plot/<SAVE_SUBDIR>/   （自动创建）
-- 在 CONFIG 中手动填写 RUN_DIR（主程序该次运行的输出目录）
-- 自动发现主程序真实产物：
+Five-fold cross-validation plotting (strictly aligned with main program output; paths manually specified in code):
+- Output location: result/plot/<SAVE_SUBDIR>/ (automatically created) in the same directory as the script
+- Manually specify RUN_DIR (output directory for the current main program run) in CONFIG
+- Automatically detects main program's actual outputs:
     * RUN_DIR/cv_summary.csv
     * RUN_DIR/training_log.json
     * RUN_DIR/val_predictions_fold*.csv
-    * RUN_DIR/learning_rate_schedule_fold*.csv（可选）
-- 图形：
-    1) R² 柱状（带均值虚线；必要时由 val_predictions_* 动态计算）
-    2) R² 箱线图（按配置三种模式其一，默认 bootstrap：每折一个箱）
-       - aggregate   : 把5个折的R²合成一个总体箱（单箱）
-       - per_epoch   : 每折用各epoch的 val_r2 作为该折分布（5箱）
-       - bootstrap   : 对每折验证集做自助抽样得到R²分布（5箱，推荐）
-    3) Val R² 学习曲线（每折）
-    4) Loss 学习曲线（每折）——分别输出：
-       - 训练集：cv_train_loss_learning_curves.{png,svg}
-       - 验证集：cv_val_loss_learning_curves.{png,svg}
-       - 合并图：cv_loss_learning_curves_combined.{png,svg}
-    5) 每折验证散点拼版：cv_val_scatter_folds.{png,svg}
-    6) 每折独立校准曲线
-    7) （可选）每折学习率曲线
-- 每张图同时导出 PNG 和 SVG，dpi=400
+    * RUN_DIR/learning_rate_schedule_fold*.csv (optional)
+- Visualizations:
+    1) R² Bar Chart (with dashed mean line; dynamically calculated from val_predictions_* if needed)
+    2) R² Boxplot (one of three modes per configuration, default bootstrap: one box per fold)
+       - aggregate   : Combines R² from all 5 folds into a single overall box (single box)
+       - per_epoch: Uses val_r2 from each epoch within a fold as its distribution (5 boxes)
+       - bootstrap: Obtains R² distribution via bootstrap sampling for each fold's validation set (5 boxes, recommended)
+    3) Val R² learning curve (per fold)
+    4) Loss learning curve (per fold) — Outputs separately:
+       - Training set: cv_train_loss_learning_curves.{png,svg}
+       - Validation set: cv_val_loss_learning_curves.{png,svg}
+       - Combined plot: cv_loss_learning_curves_combined.{png,svg}
+    5) Fold-wise validation scatter plot collage: cv_val_scatter_folds.{png,svg}
+    6) Independent calibration curve per fold
+    7) (Optional) Learning rate curve per fold
+- Export each image as both PNG and SVG, dpi=400
 """
 import os, glob, math
 from pathlib import Path
@@ -38,29 +38,29 @@ import scienceplots
 from plot_utils import (
     ensure_dir, savefig_dual,
     safe_read_csv, read_json_or_jsonl,
-    scatter_true_pred, calibration_curve  # 保留原有导入（未改变其余逻辑）
+    scatter_true_pred, calibration_curve  # Retain the original import (without altering any other logic)
 )
-from sklearn.metrics import r2_score  # 用于从 val_predictions_* 反算 R²
+from sklearn.metrics import r2_score  # Used to back-calculate R² from val_predictions_*
 
-# ========= 在此处手动填写你的输入与输出配置 =========
+# ========= Manually enter your input and output configurations here. =========
 CONFIG = {
-    # 主程序某次运行的输出目录（包含 training_log.json / cv_summary.csv / val_predictions_fold*.csv 等）
-    # 例如："/home/zdl4/mRNA/python/3UTR/runs_transformer_accumulation/test_withsavedata_20251007_01"
+    # Output directory from a specific run of the main program (containing files such as training_log.json, cv_summary.csv, val_predictions_fold*.csv, etc.)
+    # For example:"/home/zdl4/mRNA/python/3UTR/runs_transformer_accumulation/test_withsavedata_20251007_01"
     "RUN_DIR": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01",
 
-    # 输出子目录名 -> result/plot/<SAVE_SUBDIR>/
+    # Output subdirectory names -> result/plot/<SAVE_SUBDIR>/
     "SAVE_SUBDIR": "5foldplot-2",
 
-    # 校准分箱数
+    # Number of calibrated compartments
     "CALIB_BINS": 20,
 
-    # R² 箱线图模式： "bootstrap" | "per_epoch" | "aggregate"
+    # R² Box Plot Pattern: "bootstrap" | "per_epoch" | "aggregate"
     "R2_BOX_MODE": "bootstrap",
 
-    # bootstrap 参数（仅当 R2_BOX_MODE="bootstrap" 有效）
-    "BOOT_N": 1000,          # 每折自助抽样次数
-    "BOOT_SEED": 20251015,   # 随机种子
-    "JITTER_MAX_POINTS": 300 # 叠加抖动散点的最大点数（防止图过密）
+    # bootstrap Parameters (only valid when R2_BOX_MODE="bootstrap")
+    "BOOT_N": 1000,          # Number of self-service samples per fold
+    "BOOT_SEED": 20251015,   # Random seed
+    "JITTER_MAX_POINTS": 300 # Maximum number of points for stacked jitter scatter plots（Prevent overcrowding of figures）
 }
 
 plt.style.use(['science', 'no-latex'])
@@ -71,7 +71,7 @@ matplotlib.rcParams.update({
     "mathtext.default": "regular",
     "mathtext.fontset": "dejavusans",
     "axes.unicode_minus": False,
-    # 字号相关
+
     "font.size":17,
     "axes.titlesize":20,
     "axes.labelsize":19,
@@ -83,23 +83,23 @@ matplotlib.rcParams.update({
     # "axes.labelweight": "bold",
 })
 
-# ---------- 统一图形尺寸 & fold 颜色/marker ----------
+# ---------- Unify graphic dimensions & fold colors/markers ----------
 
-# 4:3 比例的 loss 学习曲线图
+# Loss Learning Curve Chart at 4:3 Aspect Ratio
 FIGSIZE_LOSS = (6.4, 4.8)
 
-# 每个散点子图的边长（英寸），保证子图 1:1
+# The side length (in inches) of each scatter subgraph, ensuring the subgraph is 1:1.
 FIGSIZE_SCATTER_SUB = 4.0
 
-# 每个 fold 对应固定颜色 & marker，保证在不同图中风格一致
+# Each fold corresponds to a fixed color & marker, ensuring consistent style across different diagrams.
 # FOLD_MARKERS = ["o", "s", "^", "D", "P", "X", "v", "*"]
 FOLD_MARKERS = ["o"]
 FOLD_COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
 def _style_for_fold(fold_idx, idx_fallback=0):
     """
-    根据 fold 序号返回 (color, marker)，保证在不同图中该 fold 的散点风格一致。
-    当无法解析 fold_idx 时，退回到 idx_fallback。
+    Return (color, marker) based on the fold index, ensuring consistent scatter plot style for that fold across different plots.
+When fold_idx cannot be parsed, fall back to idx_fallback.
     """
     if fold_idx is None:
         i = idx_fallback
@@ -112,19 +112,19 @@ def _style_for_fold(fold_idx, idx_fallback=0):
     marker = FOLD_MARKERS[i % len(FOLD_MARKERS)]
     return color, marker
 
-# ---------- 小工具 ----------
+# ---------- gadget ----------
 def _find_col(df: pd.DataFrame, candidates):
     for c in candidates:
-        if c in df.columns:  # 精确匹配
+        if c in df.columns:  # Exact match
             return c
     lower_map = {c.lower(): c for c in df.columns}
-    for c in candidates:     # 忽略大小写匹配
+    for c in candidates:     # Ignore case matching
         if c.lower() in lower_map:
             return lower_map[c.lower()]
     return None
 
 def _auto_files(run_dir: str):
-    """根据主程序真实输出，自动搜集所需文件"""
+    """Based on the actual output of the main program, automatically collect the required files."""
     files = {}
     files["cv_summary"] = os.path.join(run_dir, "cv_summary.csv")
     files["training_log"] = os.path.join(run_dir, "training_log.json")
@@ -133,7 +133,7 @@ def _auto_files(run_dir: str):
     return files
 
 def _infer_fold_idx(fp: str):
-    """从文件名提取 fold 序号：val_predictions_fold{N}.csv"""
+    """Extract the folder number from the filename:val_predictions_fold{N}.csv"""
     name = os.path.basename(fp)
     for token in name.replace(".csv","").split("_"):
         if token.lower().startswith("fold"):
@@ -144,7 +144,7 @@ def _infer_fold_idx(fp: str):
     return None
 
 def _fallback_cv_summary_from_preds(val_fold_files, save_to=None):
-    """缺少 cv_summary.csv 时，从各折 val_predictions_* 反算 R²，并（可选）保存补全版 CSV"""
+    """When cv_summary.csv is missing, calculate R² from the val_predictions_* files for each fold and (optionally) save the completed CSV."""
     rows = []
     for fp in val_fold_files:
         df = safe_read_csv(fp)
@@ -162,9 +162,9 @@ def _fallback_cv_summary_from_preds(val_fold_files, save_to=None):
         except Exception: pass
     return df_sum
 
-# ----------【紧凑坐标与校准】----------
+# ----------【Compact Coordinates and Calibration】----------
 def _quantile_limits_xy(x: np.ndarray, y: np.ndarray, qlo: float = 0.01, qhi: float = 0.99, pad_frac: float = 0.03):
-    """根据 x,y 的联合分位数给出紧凑的对角可读坐标范围，并留少量边距。"""
+    """Provide a compact diagonal range of readable coordinates based on the joint quantiles of x and y, leaving a small margin."""
     x = x[np.isfinite(x)]; y = y[np.isfinite(y)]
     if x.size == 0 or y.size == 0:
         return (0.0, 1.0), (0.0, 1.0)
@@ -177,21 +177,22 @@ def _quantile_limits_xy(x: np.ndarray, y: np.ndarray, qlo: float = 0.01, qhi: fl
 
 def calibration_curve_tight(df: pd.DataFrame, n_bins: int, out_basepath: str, title: str,
                             q_limits=(0.01, 0.99), pad_frac=0.03, min_per_bin: int = 10):
-    """仅在有样本的预测分位区间内分箱绘制校准曲线，坐标范围紧凑，去掉右上角空白。"""
+    """Plot the calibration curve in bins only within the predicted percentile range of the samples,
+    with a compact coordinate range and the upper-right corner blank area removed."""
     df = df[["true","pred"]].replace([np.inf,-np.inf], np.nan).dropna()
     if df.empty:
         return
     y = df["true"].values.astype(float)
     p = df["pred"].values.astype(float)
 
-    # 以“预测值”的分位区间作为可视范围（避免无数据区）
+    # Use the quantile range of the "predicted value" as the visible range (to avoid areas with no data).
     qlo, qhi = q_limits
     p_finite = p[np.isfinite(p)]
     plo, phi = np.quantile(p_finite, [qlo, qhi])
     span = max(1e-12, phi - plo)
     plo -= pad_frac * span; phi += pad_frac * span
 
-    # 等宽分箱，仅保留样本数足够的箱
+    # Equal-width binning, retaining only bins with sufficient sample size
     edges = np.linspace(plo, phi, n_bins + 1)
     xs, ys, ns = [], [], []
     for i in range(n_bins):
@@ -206,7 +207,7 @@ def calibration_curve_tight(df: pd.DataFrame, n_bins: int, out_basepath: str, ti
 
     xs = np.array(xs); ys = np.array(ys)
 
-    # y 轴范围与散点一致：联合分位 + padding；x 轴用预测范围主导
+    # Y-axis range aligns with scatter plot: combined quantiles + padding; X-axis dominated by prediction range.
     (xlim_joint, ylim_joint) = _quantile_limits_xy(y, p, qlo, qhi, pad_frac)
     xlim = (float(plo), float(phi))
     ylim = (min(ylim_joint[0], xlim[0]), max(ylim_joint[1], xlim[1]))
@@ -223,9 +224,9 @@ def calibration_curve_tight(df: pd.DataFrame, n_bins: int, out_basepath: str, ti
     savefig_dual(fig, out_basepath, dpi=400)
     plt.close(fig)
 
-# ---------- 箱线图：三种模式 ----------
+# ---------- Box Plot: Three Patterns ----------
 def plot_cv_box_aggregate(cv_csv: pd.DataFrame, outdir: str):
-    """把 5 折 R² 合成一个总体箱（单箱）"""
+    """Combine the 50% R² into a single overall bin (single bin)"""
     r2_col = _find_col(cv_csv, ["val_r2","r2","valR2","Val_R2"])
     if r2_col is None or cv_csv.empty: return
     vals = cv_csv[r2_col].astype(float).values
@@ -246,8 +247,8 @@ def plot_cv_box_aggregate(cv_csv: pd.DataFrame, outdir: str):
 
 def plot_cv_box_per_epoch(trainlog_items, outdir: str):
     """
-    用每折的各 epoch val_r2 值作为“分布”，得到 5 个箱
-    注意：各epoch相关性强，统计含义弱于bootstrap
+    Use the val_r2 values from each epoch within each fold as the "distribution," yielding 5 bins.
+Note: Epochs exhibit strong correlation, resulting in weaker statistical significance compared to bootstrap sampling.
     """
     if not trainlog_items: return
     df = pd.DataFrame(trainlog_items)
@@ -266,7 +267,7 @@ def plot_cv_box_per_epoch(trainlog_items, outdir: str):
     if not groups: return
     fig, ax = plt.subplots(figsize=(6.4, 4.2))
     ax.boxplot(groups, vert=True, patch_artist=False, showmeans=True, meanline=True)
-    # 叠加抖动散点（限制点数）
+    # Overlay jitter scatter plot (limited points)
     m = CONFIG.get("JITTER_MAX_POINTS", 300)
     for i, g in enumerate(groups, start=1):
         g = np.array(g)
@@ -283,11 +284,11 @@ def plot_cv_box_per_epoch(trainlog_items, outdir: str):
     plt.close(fig)
 
 def _bootstrap_r2_for_fold(df_pred: pd.DataFrame, n_boot: int, rng: np.random.RandomState):
-    """对单个折的验证集进行自助抽样，返回R²列表"""
+    """Perform bootstrap sampling on the validation set for a single fold, returning an R² list."""
     df = df_pred[["true","pred"]].dropna()
     y = df["true"].values; yhat = df["pred"].values
     n = len(y)
-    if n < 3:  # 太少无法稳定估计
+    if n < 3:  # Too few to provide a stable estimate
         return []
     idx = np.arange(n)
     r2s = []
@@ -298,8 +299,8 @@ def _bootstrap_r2_for_fold(df_pred: pd.DataFrame, n_boot: int, rng: np.random.Ra
 
 def plot_cv_box_bootstrap(val_fold_files, outdir: str, n_boot: int, seed: int):
     """
-    用 bootstrap 在每折内采样，得到每折的 R² 分布 → 5 个箱
-    同时为每个折的抖动散点指定固定颜色和 marker，便于与散点图对应。
+    Use bootstrap sampling within each fold to obtain the R² distribution for each fold → 5 bins.
+Simultaneously assign fixed colors and markers to the scatter plots for each fold's jitter, facilitating correspondence with the scatter plots.
     """
     if not val_fold_files: return
     rng = np.random.RandomState(seed)
@@ -323,7 +324,7 @@ def plot_cv_box_bootstrap(val_fold_files, outdir: str, n_boot: int, seed: int):
 
     fig, ax = plt.subplots(figsize=(6.4, 4.2))
     ax.boxplot(groups, vert=True, patch_artist=False, showmeans=True, meanline=True)
-    # 叠加抖动散点（限制点数），并使用与 scatter 图一致的颜色/marker
+    # Overlay jitter scatter points (with a point limit), using colors/markers consistent with the scatter plot.
     m = CONFIG.get("JITTER_MAX_POINTS", 300)
     for i, (g, fold_idx) in enumerate(zip(groups, fold_ids), start=1):
         g = np.array(g)
@@ -341,9 +342,9 @@ def plot_cv_box_bootstrap(val_fold_files, outdir: str, n_boot: int, seed: int):
     savefig_dual(fig, os.path.join(outdir, "cv_r2_box_bootstrap"), dpi=400)
     plt.close(fig)
 
-# ---------- 其他图 ----------
+# ---------- Other images ----------
 def plot_cv_bar(cv_csv: pd.DataFrame, outdir: str):
-    """柱状图展示各折 Val R²，虚线为均值"""
+    """The bar chart displays the Val R² for each fold, with the dotted line representing the mean."""
     fold_col = _find_col(cv_csv, ["fold", "Fold"])
     r2_col   = _find_col(cv_csv, ["val_r2", "r2", "valR2", "Val_R2"])
     if fold_col is None or r2_col is None or cv_csv.empty:
@@ -361,7 +362,7 @@ def plot_cv_bar(cv_csv: pd.DataFrame, outdir: str):
     plt.close(fig)
 
 def plot_cv_learning_curves(trainlog_items, outdir: str):
-    """训练日志：每折的 Val R² 曲线、Loss 曲线（train/val 分开 + 合并）"""
+    """Training Log: Val R² curve per fold, Loss curve (train/val split + combined)"""
     if not trainlog_items: return
     df = pd.DataFrame(trainlog_items)
     if df.empty: return
@@ -384,7 +385,7 @@ def plot_cv_learning_curves(trainlog_items, outdir: str):
         savefig_dual(fig, os.path.join(outdir, "cv_valR2_learning_curves"), dpi=400)
         plt.close(fig)
 
-    # Train loss 单独一张（4:3，纵轴为原始 loss，线性坐标）
+    # Train loss (single plot, 4:3 aspect ratio, vertical axis shows raw loss, linear scale)
     if tloss_col is not None:
         fig, ax = plt.subplots(figsize=FIGSIZE_LOSS)
         for f in sorted(df[fold_col].unique()):
@@ -392,13 +393,13 @@ def plot_cv_learning_curves(trainlog_items, outdir: str):
             ax.plot(sub[epoch_col], sub[tloss_col], linewidth=1.2, label=f"fold {int(f)}")
         ax.set_xlabel("Epoch"); ax.set_ylabel("Train loss")
         # ax.set_title("Train loss by epoch (per fold)")
-        ax.set_yscale("linear")  # 明确使用真实数值（不做对数变换）
+        ax.set_yscale("linear")  # Use actual numerical values explicitly (without logarithmic transformation).
         ax.grid(True); ax.legend(ncols=3, fontsize=8)
         fig.tight_layout()
         savefig_dual(fig, os.path.join(outdir, "cv_train_loss_learning_curves"), dpi=400)
         plt.close(fig)
 
-    # Val loss 单独一张（4:3，纵轴为原始 loss，线性坐标）
+    # Val loss (single plot, 4:3 aspect ratio, vertical axis represents raw loss, linear coordinates)
     if vloss_col is not None:
         fig, ax = plt.subplots(figsize=FIGSIZE_LOSS)
         for f in sorted(df[fold_col].unique()):
@@ -406,13 +407,13 @@ def plot_cv_learning_curves(trainlog_items, outdir: str):
             ax.plot(sub[epoch_col], sub[vloss_col], linewidth=1.4, label=f"fold {int(f)}")
         ax.set_xlabel("Epoch"); ax.set_ylabel("Val loss")
         # ax.set_title("Val loss by epoch (per fold)")
-        ax.set_yscale("linear")  # 明确使用真实数值（不做对数变换）
+        ax.set_yscale("linear")  # Use actual numerical values explicitly (without logarithmic transformation).
         ax.grid(True); ax.legend(ncols=3, fontsize=8)
         fig.tight_layout()
         savefig_dual(fig, os.path.join(outdir, "cv_val_loss_learning_curves"), dpi=400)
         plt.close(fig)
 
-    # 合并版：train/val 同图（保持原尺寸配置）
+    # Combined Version: train/val same image (maintain original size configuration)
     if tloss_col is not None and vloss_col is not None:
         fig, ax = plt.subplots(figsize=(7, 4))
         for f in sorted(df[fold_col].unique()):
@@ -427,15 +428,15 @@ def plot_cv_learning_curves(trainlog_items, outdir: str):
 
 def plot_cv_scatter_and_calibration(val_fold_files, outdir: str, n_bins: int = 10):
     """
-    每折验证散点（拼版） + 每折独立校准曲线（单张）
-    - cv_val_scatter_folds.png：每个折的散点颜色/marker 与 cv_r2_box_bootstrap 中一致
-    - 各子图 1:1 比例，统一 x/y 轴范围（按所有折的联合分位数）
+    Scatter plots per fold (imposition) + Independent calibration curves per fold (single sheet)
+    - cv_val_scatter_folds.png: Color/marker for each fold's scatter plot matches cv_r2_box_bootstrap
+    - Subplots at 1:1 scale with unified x/y axis ranges (based on combined quantiles across all folds)
     """
     fps = sorted(val_fold_files, key=lambda x: (_infer_fold_idx(x) or 9999))
     if not fps:
         return
 
-    # 先遍历一次，得到所有折的 true/pred，用于统一坐标范围
+    # First, traverse once to obtain all fold true/pred values for unifying the coordinate range.
     all_true_list = []
     all_pred_list = []
     for fp in fps:
@@ -487,14 +488,14 @@ def plot_cv_scatter_and_calibration(val_fold_files, outdir: str, n_bins: int = 1
         )
         ax.set_xlim(*global_xlim)
         ax.set_ylim(*global_ylim)
-        ax.set_aspect("equal", adjustable="box")  # 子图 1:1 比例
+        ax.set_aspect("equal", adjustable="box")  # Subfigure 1:1 scale
 
         ax.tick_params(labelsize=19)
 
         # name = os.path.basename(fp).replace(".csv", "")
         fold_idx = _infer_fold_idx(fp)
         if fold_idx is None:
-            # 找不到 fold 时退回文件名
+            # If the folder cannot be found, revert to the filename.
             title = os.path.basename(fp).replace(".csv", "")
         else:
             title = f"Fold {fold_idx}"
@@ -508,7 +509,7 @@ def plot_cv_scatter_and_calibration(val_fold_files, outdir: str, n_bins: int = 1
     savefig_dual(fig, os.path.join(outdir, "cv_val_scatter_folds"), dpi=400)
     plt.close(fig)
 
-    # 各折独立校准曲线（tight 版）
+    # Independent calibration curves for each fold (tight version)
     for fp in fps:
         df = safe_read_csv(fp)
         if df.empty or not {"true","pred"}.issubset(df.columns):
@@ -521,20 +522,20 @@ def plot_cv_scatter_and_calibration(val_fold_files, outdir: str, n_bins: int = 1
             q_limits=(0.01, 0.99), pad_frac=0.03, min_per_bin=10
         )
 
-# ---------- 主流程 ----------
+# ---------- Main Process ----------
 def main():
-    # 输出根目录：脚本目录的同级 result/plot/<SAVE_SUBDIR>/
+    # Output root directory: Script directory's peer level result/plot/<SAVE_SUBDIR>/
     script_dir = Path(__file__).resolve().parent
     save_subdir = CONFIG.get("SAVE_SUBDIR", "5foldplot")
     outdir = ensure_dir(script_dir.parent / "result" / "plot" / save_subdir)
 
     run_dir = CONFIG.get("RUN_DIR", "").strip()
     if not run_dir or not os.path.isdir(run_dir):
-        raise FileNotFoundError("请在 CONFIG['RUN_DIR'] 中填写主程序该次运行的输出目录路径（包含 cv 与各折CSV）。")
+        raise FileNotFoundError("Please specify the output directory path for the main program's current run in CONFIG['RUN_DIR'] (including cv and all fold CSV files).")
 
     files = _auto_files(run_dir)
 
-    # --- 柱状图 + （单箱）聚合箱线图 ---
+    # --- Column Chart + (Single-Box) Aggregated Box Plot ---
     cv_csv = safe_read_csv(files["cv_summary"])
     if cv_csv.empty:
         cv_csv = _fallback_cv_summary_from_preds(files["val_fold_files"],
@@ -543,16 +544,16 @@ def main():
         plot_cv_bar(cv_csv, outdir)
         plot_cv_box_aggregate(cv_csv, outdir)
 
-    # --- 学习曲线（含：Val R²；Train loss；Val loss；合并版） ---
+    # --- Learning Curve (Includes: Val R²; Train loss; Val loss; Combined version) ---
     trainlog_items = read_json_or_jsonl(files["training_log"])
     if trainlog_items:
         plot_cv_learning_curves(trainlog_items, outdir)
 
-    # --- 每折验证散点 & 校准 ---
+    # --- Verification Scatter & Calibration per Fold ---
     if files["val_fold_files"]:
         plot_cv_scatter_and_calibration(files["val_fold_files"], outdir, n_bins=int(CONFIG.get("CALIB_BINS", 10)))
 
-    # --- R² 5箱：按配置选择最佳可用模式 ---
+    # --- R² 5 boxes: Select the optimal available mode based on configuration ---
     mode = (CONFIG.get("R2_BOX_MODE") or "bootstrap").lower()
     if mode == "bootstrap" and files["val_fold_files"]:
         plot_cv_box_bootstrap(
@@ -563,7 +564,7 @@ def main():
     elif mode == "per_epoch" and trainlog_items:
         plot_cv_box_per_epoch(trainlog_items, outdir)
     else:
-        # 若所选模式数据不足，自动尝试另一个可用模式
+        # If data for the selected mode is insufficient, automatically attempt another available mode.
         if files["val_fold_files"]:
             plot_cv_box_bootstrap(
                 files["val_fold_files"], outdir,
@@ -572,9 +573,9 @@ def main():
             )
         elif trainlog_items:
             plot_cv_box_per_epoch(trainlog_items, outdir)
-        # 若都不可用，则已有 aggregate 版本可作为备选
+        # If none are available, an existing aggregate version can serve as an alternative.
 
-    # --- （可选）每折学习率曲线 ---
+    # --- (Optional) Learning Rate Curve per Fold ---
     if files["lr_fold_files"]:
         fig, ax = plt.subplots(figsize=(7, 4))
         for fp in files["lr_fold_files"]:
@@ -589,7 +590,7 @@ def main():
         savefig_dual(fig, os.path.join(outdir, "cv_lr_schedules"), dpi=400)
         plt.close(fig)
 
-    print(f"[OK] CV 图已生成：{outdir}")
+    print(f"[OK] CV Image generated：{outdir}")
 
 if __name__ == "__main__":
     main()

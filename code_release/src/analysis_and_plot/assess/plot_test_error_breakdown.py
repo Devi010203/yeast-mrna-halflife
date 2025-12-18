@@ -1,24 +1,24 @@
 # plots/plot_test_error_breakdown.py
 # -*- coding: utf-8 -*-
 """
-测试集误差剖析与可靠性评估（论文用图）
-输出目录：脚本同级的上一级  result/plot/test_error_breakdown/<时间戳>/   （自动创建）
-每张图同时导出 .png + .svg（dpi=400）
+Test Set Error Breakdown and Reliability Assessment (Paper Figures)
+Output Directory: Parent directory of script level  result/plot/test_error_breakdown/<timestamp>/   (Automatically created)
+Each figure exported as .png + .svg (dpi=400)
 
-生成图表：
-  1) binned_metrics_{MAE,RMSE}_by_true_bins        # 按真实值分位数分箱的性能条形图（含样本数）
-  2) calibration_deciles_ci                         # 10-bin 校准（按真值分位），均值±95%CI（对 pred 的均值做CI）
-     同时导出 calibration_deciles.csv
-  3) parity_hexbin / parity_density                 # 整体 Parity（Pred vs True），附 R² / Pearson / Spearman / 斜率截距 / MAE
-  4) （保留）bland_altman_test                      # Bland–Altman（差异-均值）图
-  5) （保留）error_vs_length / error_vs_gc          # 误差随序列长度/GC变化
-  6) （新增）error_bins_bar                         # MAE & RMSE 合并条形（双轴，可选）
+Generated Charts:
+  1) binned_metrics_{MAE,RMSE}_by_true_bins        # Performance bar chart binned by true value deciles (includes sample counts)
+  2) calibration_deciles_ci                         # 10-bin calibration (by true value deciles), mean ± 95% CI (CI for mean of pred)
+     Simultaneously export calibration_deciles.csv
+  3) parity_hexbin / parity_density                 # Overall Parity (Pred vs True), with R² / Pearson / Spearman / slope-intercept / MAE
+  4) (Retained) bland_altman_test                      # Bland–Altman (difference-mean) plot
+  5) (Retained) error_vs_length / error_vs_gc          # Error vs. sequence length / GC content
+  6) (New) error_bins_bar                            # Combined MAE & RMSE bar chart (dual axes, optional)
 
-数据输入（在 CONFIG 顶部手动填写）：
-  - RUN_DIR/final_test_predictions.csv             # 必需：含真实值/预测列（脚本可自动识别常见列名）
-  - DATA_CSV（可选）                               # 总数据表（含 sequence 与 Isoform Half-Life），用于补充序列、计算GC与长度
+Data Input (manually entered at top of CONFIG):
+  - RUN_DIR/final_test_predictions.csv             # Required: Contains true/predicted columns (script automatically recognizes common column names)
+  - DATA_CSV (optional)                               # Master data table (includes sequence and Isoform Half-Life), used for sequence supplementation, GC and length calculation
 
-注意：仅使用 matplotlib；不依赖 seaborn。分箱优先分位数等频分箱（qcut），失败时退回等宽分箱。
+Note: Uses only matplotlib; does not depend on seaborn. Prioritizes quantile-based equal-frequency binning (qcut), falls back to equal-width binning if qcut fails.
 """
 
 import os, math, json
@@ -41,7 +41,7 @@ matplotlib.rcParams.update({
     "mathtext.default": "regular",
     "mathtext.fontset": "dejavusans",
     "axes.unicode_minus": False,
-    # 字号相关
+
     "font.size":17,
     "axes.titlesize":20,
     "axes.labelsize":19,
@@ -49,40 +49,40 @@ matplotlib.rcParams.update({
     "ytick.labelsize":15,
     "legend.fontsize":16,
     "figure.titlesize":17,
-    # "axes.titleweight": "bold",  # 图标题
-    # "axes.labelweight": "bold",  # x / y 轴标签
+    # "axes.titleweight": "bold",
+    # "axes.labelweight": "bold",
 })
 
-# ========== 在此手动填写 ==========
+# ========== Please fill in manually here ==========
 CONFIG = {
-    # 完整训练输出目录（里面有 final_test_predictions.csv）
+    # Complete training output directory (containing final_test_predictions.csv)
     "RUN_DIR": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01",
 
-    # （可选）总数据 CSV，包含至少 'sequence' 与 'Isoform Half-Life'
+    # (Optional) Aggregate data CSV containing at least the ‘sequence’ with the 'Isoform Half-Life'
     "DATA_CSV": r"F:\mRNA_Project\3UTR\data\processed\mRNA_half_life_dataset_RNA.csv",
 
-    # 输出子目录名（位于 脚本同级的上一级 /result/plot/ 下）
+    # Output subdirectory name (located in the parent directory of the script, under `/result/plot/`)
     "SAVE_SUBDIR": "test_error_breakdown",
 
-    # 分箱参数
-    "NUM_BINS_TRUE": 10,          # 真实值分箱个数（性能条形图/误差柱状）
-    "NUM_BINS_FEATURE": 10,       # 特征分箱（长度/GC）
-    "CALIB_BINS": 10,             # 校准分箱（按真实值分位：deciles）
+    # Boxing Parameters
+    "NUM_BINS_TRUE": 10,          # Number of bins for actual values (Performance histogram/error bars)
+    "NUM_BINS_FEATURE": 10,       # Feature Binning (Length/GC)
+    "CALIB_BINS": 10,             # Calibration compartments (in bits of true value: deciles)
 
-    "ALLOW_DUP_DROP": True,       # qcut duplicates='drop' 以应对重复值
+    "ALLOW_DUP_DROP": True,       # qcut duplicates='drop' To address duplicate values
 
-    # 置信区间（bootstrap）
+    # Confidence Interval (Bootstrap)
     "BOOTSTRAP_N": 1000,
     "BOOTSTRAP_SEED": 20251016,
     "CI_ALPHA": 0.05,             # 95% CI
 
-    # Parity 图配置
-    "PARITY_KIND": "scatter",      # "hexbin" 或 "scatter"（"density" 将被视作 "scatter"）
-    "PARITY_HEX_GRIDSIZE": 40,    # hexbin 网格密度
-    "PARITY_Q_LIMITS": (0.01, 0.99),  # 坐标分位裁剪，避免极端点造成大空白
+    # Parity Figure Placement
+    "PARITY_KIND": "scatter",      # "hexbin" or “scattering” (‘density’ will be treated as “scattering”)
+    "PARITY_HEX_GRIDSIZE": 40,    # hexbin Grid Density
+    "PARITY_Q_LIMITS": (0.01, 0.99),  # Coordinate quantile trimming to prevent large gaps caused by outliers
     "PARITY_PAD_FRAC": 0.03,
 
-    # 作图风格
+    # Graphic Style
     "DPI": 400,
     "FIGSIZE": (6.0, 4.5),
     "GRID_ALPHA": 0.35,
@@ -90,9 +90,9 @@ CONFIG = {
 # =================================
 
 
-# ---------------- 基础工具 ----------------
+# ---------------- Basic Tools ----------------
 def _project_root() -> Path:
-    return Path(__file__).resolve().parent.parent  # 脚本上一级为项目根
+    return Path(__file__).resolve().parent.parent  # The script's parent level is the project root.
 
 def _ensure_outdir() -> str:
     t = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -107,12 +107,12 @@ def _save_dual(fig, out_base: str):
 
 def _safe_read_csv(path: str) -> Optional[pd.DataFrame]:
     if path and os.path.exists(path):
-        # 尝试自动识别编码
+        # Attempt automatic encoding recognition
         try:
             return pd.read_csv(path, encoding="utf-8")
         except UnicodeDecodeError:
             return pd.read_csv(path, encoding="utf-8-sig")
-    print(f"[提示] 找不到文件：{path}")
+    print(f"[Notice] File not found:{path}")
     return None
 
 def _compute_gc(seq: str) -> float:
@@ -127,11 +127,11 @@ def _qcut_safe(x: pd.Series, q: int, allow_drop=True):
     try:
         return pd.qcut(x, q=q, duplicates="drop" if allow_drop else None)
     except Exception:
-        # 回退等宽分箱
+        # Rollback of fixed-width partitioning
         return pd.cut(x, bins=q, include_lowest=True)
 
 def _quantile_limits_xy(x: np.ndarray, y: np.ndarray, qlo: float = 0.01, qhi: float = 0.99, pad_frac: float = 0.03):
-    """根据 x,y 的联合分位数给出紧凑的对角可读坐标范围，并留少量边距。"""
+    """Provide a compact diagonal range of readable coordinates based on the joint quantiles of x and y, leaving a small margin."""
     x = x[np.isfinite(x)]; y = y[np.isfinite(y)]
     if x.size == 0 or y.size == 0:
         return (0.0, 1.0), (0.0, 1.0)
@@ -142,7 +142,7 @@ def _quantile_limits_xy(x: np.ndarray, y: np.ndarray, qlo: float = 0.01, qhi: fl
     lo -= pad_frac * span; hi += pad_frac * span
     return (lo, hi), (lo, hi)
 
-# ---------------- 列名自动识别 ----------------
+# ---------------- List-based Automatic Recognition ----------------
 _POSS_TRUE = ["true", "y_true", "label", "target", "half_life", "halflife", "half-life", "y", "obs", "real"]
 _POSS_PRED = ["pred", "y_pred", "prediction", "predicted", "pred_half_life", "half_life_pred", "yhat", "preds"]
 
@@ -151,7 +151,7 @@ def _autodetect_col(cols: List[str], candidates: List[str]) -> Optional[str]:
     for key in candidates:
         if key in lower:
             return lower[key]
-    # 宽松包含匹配
+    # Loose containment matching
     for c in cols:
         lc = c.lower()
         for key in candidates:
@@ -160,18 +160,18 @@ def _autodetect_col(cols: List[str], candidates: List[str]) -> Optional[str]:
     return None
 
 
-# ---------------- 数据加载 ----------------
+# ---------------- Data loading ----------------
 def _load_test_predictions(run_dir: str, data_csv: Optional[str]) -> pd.DataFrame:
     test_csv = os.path.join(run_dir, "final_test_predictions.csv")
     dft = _safe_read_csv(test_csv)
     if dft is None:
-        raise FileNotFoundError(f"缺少 {test_csv}")
+        raise FileNotFoundError(f"Lacking {test_csv}")
 
-    # 真实/预测列名自动识别
+    # Automatic Identification of Actual/Predicted Column Names
     t_col = _autodetect_col(list(dft.columns), _POSS_TRUE)
     p_col = _autodetect_col(list(dft.columns), _POSS_PRED)
     if t_col is None or p_col is None:
-        raise ValueError(f"无法在 {test_csv} 中识别真实/预测列名，请检查列名：{list(dft.columns)}")
+        raise ValueError(f"Unable to recognize actual/predicted column names in {test_csv}. Please check the column names:{list(dft.columns)}")
 
     dft = dft.copy()
     dft.rename(columns={t_col: "true", p_col: "pred"}, inplace=True)
@@ -179,11 +179,11 @@ def _load_test_predictions(run_dir: str, data_csv: Optional[str]) -> pd.DataFram
     dft["pred"] = pd.to_numeric(dft["pred"], errors="coerce")
     dft = dft.replace([np.inf, -np.inf], np.nan).dropna(subset=["true", "pred"])
 
-    # 序列获取与特征（尽力而为）
+    # Sequence Acquisition and Features
     if "sequence" not in dft.columns and data_csv:
         df_all = _safe_read_csv(data_csv)
         if df_all is not None and "sequence" in df_all.columns:
-            # 没有稳定 key 就不强行 merge，避免误匹配（保持与你原逻辑一致）
+            # Without a stable key, do not force a merge to avoid incorrect matching.
             pass
 
     if "sequence" in dft.columns:
@@ -199,7 +199,7 @@ def _load_test_predictions(run_dir: str, data_csv: Optional[str]) -> pd.DataFram
     return dft
 
 
-# ---------------- 1) 分箱性能条形图 ----------------
+# ---------------- 1) Box-and-Whisker Plot for Sorting Performance ----------------
 def plot_binned_metrics_by_true(dft: pd.DataFrame, outdir: str):
     bins = _qcut_safe(dft["true"], q=CONFIG["NUM_BINS_TRUE"], allow_drop=CONFIG["ALLOW_DUP_DROP"])
     grp = dft.groupby(bins, observed=True).agg(
@@ -233,7 +233,7 @@ def plot_binned_metrics_by_true(dft: pd.DataFrame, outdir: str):
     ax.set_xticks([])
     _save_dual(fig, os.path.join(outdir, "binned_metrics_RMSE_by_true_bins"))
 
-    # （新增）合并条形（双轴）—— 文件名：error_bins_bar
+    # (New) Merged Bar Chart (Dual-Axis) — File Name:error_bins_bar
     x = np.arange(len(grp))
     fig, ax1 = plt.subplots(figsize=CONFIG["FIGSIZE"])
     w = 0.4
@@ -246,10 +246,10 @@ def plot_binned_metrics_by_true(dft: pd.DataFrame, outdir: str):
     ax1.set_title("Error by true-value bins (MAE \& RMSE)")
     ax1.grid(True, axis="y", linestyle="--", alpha=CONFIG["GRID_ALPHA"])
     ax1.set_xticks([])
-    # 样本量盖在上层
+    # Sample size is covered in the upper layer.
     for i, n in enumerate(grp["n"]):
         ax1.text(i - w/2, grp["mae"][i], str(int(n)), ha="center", va="bottom", fontsize=7)
-    # 合并图例
+    # Combined Legend
     h1, l1 = ax1.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
     ax1.legend(h1+h2, l1+l2, loc="upper left", fontsize=9, frameon=False)
@@ -257,9 +257,9 @@ def plot_binned_metrics_by_true(dft: pd.DataFrame, outdir: str):
     _save_dual(fig, os.path.join(outdir, "error_bins_bar"))
 
 
-# ---------------- 2) 按真值分位的 10-bin 校准（均值±95%CI） ----------------
+# ---------------- 2) 10-bin calibration by true value bin (mean ± 95% CI) ----------------
 def _bootstrap_ci_mean(y: np.ndarray, n_boot: int, rng: np.random.RandomState, alpha: float) -> tuple[float, float]:
-    """对给定样本 y 的均值做 bootstrap 置信区间（双侧，1-alpha）。"""
+    """Estimate the bootstrap confidence interval (two-tailed, 1-alpha) for the mean of the given sample y."""
     y = np.asarray(y, dtype=float)
     n = y.shape[0]
     if n <= 1:
@@ -275,11 +275,11 @@ def _bootstrap_ci_mean(y: np.ndarray, n_boot: int, rng: np.random.RandomState, a
 
 def plot_calibration_true_deciles_with_ci(dft: pd.DataFrame, outdir: str):
     """
-    校准曲线（10-bin，按“真值”分位分箱）：
-    x = 每个 bin 的 true 均值；y = 该 bin 的 pred 均值；误差条 = pred 均值的 95%CI（bootstrap）
-    输出：calibration_deciles.csv + calibration_deciles_ci.{png,svg}
+    Calibration curve (10-bin, decile binning by "true value"):
+    x = true mean for each bin; y = predicted mean for that bin; error bars = 95% CI (bootstrap) of predicted mean
+    Output: calibration_deciles.csv + calibration_deciles_ci.{png,svg}
     """
-    # 以 true 做分位分箱
+    # Partition into bins using true as the cutoff value
     bins = _qcut_safe(dft["true"], q=CONFIG["CALIB_BINS"], allow_drop=CONFIG["ALLOW_DUP_DROP"])
     rng = np.random.RandomState(CONFIG.get("BOOTSTRAP_SEED", 20251016))
 
@@ -299,18 +299,18 @@ def plot_calibration_true_deciles_with_ci(dft: pd.DataFrame, outdir: str):
             "true_mean": float(np.mean(x_true)),
             "pred_mean": float(np.mean(y_pred)),
             "count": int(len(y_pred)),
-            "ci_lo": ci_lo,    # pred_mean 的CI
+            "ci_lo": ci_lo,    # Confidence interval for pred_mean
             "ci_hi": ci_hi
         })
 
     if not rows:
-        print("[跳过] 校准曲线：分箱后没有有效数据。")
+        print("[Skip] Calibration curve: No valid data after binning.")
         return
 
     calib = pd.DataFrame(rows).sort_values("true_mean").reset_index(drop=True)
     calib.to_csv(os.path.join(outdir, "calibration_deciles.csv"), index=False)
 
-    # ===== 绘图：1:1 比例，保证点和 CI 都在范围内 =====
+    # ===== Drawing: 1:1 scale, ensuring points and CI are within range =====
     fig, ax = plt.subplots(figsize=(4.8, 4.8))
 
     x_mean = calib["true_mean"].to_numpy()
@@ -320,14 +320,14 @@ def plot_calibration_true_deciles_with_ci(dft: pd.DataFrame, outdir: str):
 
     ax.plot(x_mean, y_mean, marker="o", linewidth=1.5, label="mean per bin")
 
-    # y 方向误差条（对 pred 的均值）
+    # y Direction Error Bar (Mean of pred)
     yerr = np.vstack([
         y_mean - ci_lo,
         ci_hi - y_mean,
     ])
     ax.errorbar(x_mean, y_mean, yerr=yerr, fmt="none", linewidth=1.0, alpha=0.85)
 
-    # 统一坐标范围：考虑 true_mean / pred_mean / CI 三者，避免裁掉误差条
+    # Unify coordinate range: Consider true_mean, pred_mean, and CI together to avoid clipping error bars.
     lo_raw = float(
         min(
             np.nanmin(x_mean),
@@ -346,17 +346,17 @@ def plot_calibration_true_deciles_with_ci(dft: pd.DataFrame, outdir: str):
     lo = lo_raw - 0.04 * span
     hi = hi_raw + 0.04 * span
 
-    # 理想参考线 y = x
+    # Ideal Reference Line y = x
     ax.plot([lo, hi], [lo, hi], linestyle="--", linewidth=1.2, label="y = x")
 
-    # 标注每箱样本数
+    # Indicate the number of samples per box
     for x0, y0, n in zip(x_mean, y_mean, calib["count"]):
         ax.annotate(str(int(n)), (x0, y0), textcoords="offset points",
                     xytext=(0, 6), ha="center", fontsize=8)
 
     ax.set_xlim(lo, hi)
     ax.set_ylim(lo, hi)
-    ax.set_aspect("equal", adjustable="box")  # 坐标尺度 1:1
+    ax.set_aspect("equal", adjustable="box")  # Coordinate scale 1:1
 
     ax.set_xlabel("Bin Mean True")
     ax.set_ylabel("Bin Mean Prediction")
@@ -366,14 +366,14 @@ def plot_calibration_true_deciles_with_ci(dft: pd.DataFrame, outdir: str):
 
 
 
-# ---------------- 3) 整体 Parity（附指标，hexbin/散点） ----------------
+# ---------------- 3) Overall Parity (with Metrics, Hexbin/Scatter Plot) ----------------
 def _pearsonr(x: np.ndarray, y: np.ndarray) -> float:
     x = np.asarray(x, float); y = np.asarray(y, float)
     if x.size < 2: return np.nan
     return float(np.corrcoef(x, y)[0, 1])
 
 def _spearmanr(x: np.ndarray, y: np.ndarray) -> float:
-    # 无穷依赖：用 pandas 排名 + 皮尔逊
+    # Infinite Dependence: Ranking with pandas + Pearson
     xr = pd.Series(x).rank(method="average").to_numpy()
     yr = pd.Series(y).rank(method="average").to_numpy()
     return _pearsonr(xr, yr)
@@ -392,7 +392,7 @@ def plot_parity(dft: pd.DataFrame, outdir: str):
     x = dft["true"].to_numpy(dtype=float)
     y = dft["pred"].to_numpy(dtype=float)
 
-    # 指标
+    # Indicator
     mae = float(np.mean(np.abs(y - x)))
     # R² = 1 - SS_res/SS_tot
     ss_res = float(np.sum((y - x) ** 2))
@@ -402,16 +402,16 @@ def plot_parity(dft: pd.DataFrame, outdir: str):
     spear = _spearmanr(x, y)
     slope, intercept = _ols_slope_intercept(x, y)
 
-    # 坐标分位裁剪以去掉右上角空白
+    # Coordinate-based cropping to remove the upper-right corner blank space
     qlo, qhi = CONFIG.get("PARITY_Q_LIMITS", (0.01, 0.99))
     pad_frac = CONFIG.get("PARITY_PAD_FRAC", 0.03)
     (xlim, ylim) = _quantile_limits_xy(x, y, qlo=qlo, qhi=qhi, pad_frac=pad_frac)
 
     kind = (CONFIG.get("PARITY_KIND", "hexbin") or "hexbin").lower()
-    if kind == "density":  # 兼容写法
+    if kind == "density":  # Compatible Writing Style
         kind = "scatter"
 
-    # ===== 正方形画布 =====
+    # ===== Square canvas =====
     fig, ax = plt.subplots(figsize=(4.8, 4.8))
 
     if kind == "hexbin":
@@ -429,7 +429,7 @@ def plot_parity(dft: pd.DataFrame, outdir: str):
         ax.scatter(x, y, s=8, alpha=0.6)
         out_name = "parity_density"
 
-    # y = x 参考线
+    # y = x Reference line
     ax.plot(
         [xlim[0], xlim[1]],
         [xlim[0], xlim[1]],
@@ -440,7 +440,7 @@ def plot_parity(dft: pd.DataFrame, outdir: str):
         label="y = x",
     )
 
-    # 拟合线
+    # Fitting line
     if np.isfinite(slope) and np.isfinite(intercept):
         xs_line = np.array([xlim[0], xlim[1]])
         ax.plot(
@@ -454,13 +454,13 @@ def plot_parity(dft: pd.DataFrame, outdir: str):
 
     ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
-    ax.set_aspect("equal", adjustable="box")  # 坐标尺度 1:1
+    ax.set_aspect("equal", adjustable="box")  # Coordinate scale 1:1
 
     ax.set_xlabel("True")
     ax.set_ylabel("Predicted")
     # ax.set_title("Test Parity")
 
-    # 角标注（文本框）
+    # Superscript annotation (text box)
     text = (
         f"R² = {r2:.3f}\n"
         f"Pearson = {pear:.3f}\n"
@@ -480,7 +480,7 @@ def plot_parity(dft: pd.DataFrame, outdir: str):
     )
 
     ax.grid(True, linestyle="--", alpha=CONFIG["GRID_ALPHA"])
-    # ✅ 确保只调用一次 legend，因此只会有一个图例框
+    # Ensure that the legend is called only once, so that only one legend box will appear.
     ax.legend(loc="lower right", fontsize=11, frameon=False)
 
     fig.tight_layout()
@@ -488,7 +488,7 @@ def plot_parity(dft: pd.DataFrame, outdir: str):
 
 
 
-# ---------------- 4) Bland–Altman（保留） ----------------
+# ---------------- 4) Bland–Altman（Retain） ----------------
 def plot_bland_altman(dft: pd.DataFrame, outdir: str):
     mean_vals = 0.5 * (dft["true"].to_numpy() + dft["pred"].to_numpy())
     diff_vals = (dft["true"] - dft["pred"]).to_numpy()
@@ -510,10 +510,10 @@ def plot_bland_altman(dft: pd.DataFrame, outdir: str):
     _save_dual(fig, os.path.join(outdir, "bland_altman_test"))
 
 
-# ---------------- 5) 误差 vs 序列长度/GC（保留） ----------------
+# ---------------- 5) Error vs. Sequence Length/GC (Retained) ----------------
 def _plot_error_vs_feature(dft: pd.DataFrame, feat: str, outpath: str, ylabel="Mean |Error|"):
     if feat not in dft.columns or dft[feat].isna().all():
-        print(f"[跳过] 缺少特征列：{feat}")
+        print(f"[Skip] Missing feature column:{feat}")
         return
     try:
         bins = pd.qcut(dft[feat], q=CONFIG["NUM_BINS_FEATURE"], duplicates="drop" if CONFIG["ALLOW_DUP_DROP"] else None)
@@ -536,33 +536,33 @@ def _plot_error_vs_feature(dft: pd.DataFrame, feat: str, outpath: str, ylabel="M
     _save_dual(fig, outpath)
 
 
-# ---------------- 主流程 ----------------
+# ---------------- Main Process ----------------
 def main():
     outdir = _ensure_outdir()
 
     run_dir = CONFIG["RUN_DIR"]
     if not run_dir or not os.path.isdir(run_dir):
-        raise NotADirectoryError("请在 CONFIG['RUN_DIR'] 填写完整训练输出目录。")
+        raise NotADirectoryError("Please enter the full training output directory in CONFIG['RUN_DIR'].")
 
     dft = _load_test_predictions(run_dir, CONFIG.get("DATA_CSV"))
 
-    # 1) 分箱性能（按真实值）
+    # 1) Boxing Performance (Actual Values)
     plot_binned_metrics_by_true(dft, outdir)
 
-    # 2) 校准（按真值分位，10-bin，均值±95%CI）
+    # 2) Calibration (by true value bin, 10-bin, mean ± 95% CI)
     plot_calibration_true_deciles_with_ci(dft, outdir)
 
-    # 3) 整体 Parity（hexbin/散点，附指标）
+    # 3) Overall Parity (hexbin/scatter plot with indicators)
     plot_parity(dft, outdir)
 
-    # 4) Bland–Altman（保留）
+    # 4) Bland–Altman(Retain)
     plot_bland_altman(dft, outdir)
 
-    # 5) 误差 vs 序列长度/GC（若有序列）
+    # 5) Error vs. Sequence Length/GC Content (if sequence available)
     _plot_error_vs_feature(dft, "seq_len", os.path.join(outdir, "error_vs_length"))
     _plot_error_vs_feature(dft, "gc_frac", os.path.join(outdir, "error_vs_gc"))
 
-    print(f"[OK] 测试集误差剖析图已生成：{outdir}")
+    print(f"[OK] Test set error analysis chart has been generated:{outdir}")
 
 if __name__ == "__main__":
     main()

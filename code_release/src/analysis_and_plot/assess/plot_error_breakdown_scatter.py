@@ -1,15 +1,9 @@
 # plots/plot_error_breakdown_scatter.py
 # -*- coding: utf-8 -*-
 """
-误差分解（长度/GC 相关）可视化：
-  1) y_pred vs 3'UTR length（散点 + 分位平滑 + 95%CI）
-  2) residual vs 3'UTR length（散点 + 分位平滑 + 95%CI）
-  3) y_pred vs GC fraction（散点 + 分位平滑 + 95%CI）
-  4) residual vs GC fraction（散点 + 分位平滑 + 95%CI）
-  5) MAE by length（等宽 & 分位）柱状
-  6) MAE by GC（等宽 & 分位）柱状
-输入：final_test_predictions.csv（含 prediction / truth；最好含 sequence 列以计算 length/GC）
-输出：<项目根>/result/plot/error_breakdown_scatter/<时间戳>/  （PNG+SVG, dpi=400 + CSV）
+Error decomposition (length/GC correlation) visualization:  1) y_pred vs 3'UTR length (scatter + quantile smoothing + 95%CI)  2) residual vs 3'UTR length (scatter + quantile smoothing + 95%CI)  3) y_pred vs GC fraction (scatter + quantile smoothing + 95%CI)  4) residual vs GC fraction (scatter + quantile smoothing + 95%CI)  5) MAE by length (equal width & fractional) bar  6) MAE by GC (equal-width & quantile) bar
+Input: final_test_predictions.csv (with prediction / truth; preferably with sequence columns to calculate length/GC)
+Output: <project root>/result/plot/error_breakdown_scatter/<timestamp>/ (PNG+SVG, dpi=400 + CSV)
 """
 
 import os, re, math, json
@@ -27,25 +21,25 @@ import scienceplots
 
 plt.style.use('science')
 
-# ========== 在此手动填写（不使用命令行）==========
-RUN_DIR = r"F:/mRNA_Project/3UTR/Paper/result/5f_full_head_v3_20251024_01"   # ← 改成你的完整训练输出目录
-INPUT_FILE = "final_test_predictions.csv"    # 如有不同文件名可改
+# ========== Please fill in manually here==========
+RUN_DIR = r"F:/mRNA_Project/3UTR/Paper/result/5f_full_head_v3_20251024_01"   # ← Change to your full training output directory
+INPUT_FILE = "final_test_predictions.csv"    # Should different filenames be required, these may be amended.
 DPI = 400
 
-# 散点与平滑
+# Scatter and Smooth
 POINT_SIZE = 8
 POINT_ALPHA = 0.25
-SMOOTH_QUANTILES = np.linspace(0.05, 0.95, 19)  # 分位平滑的节点（可改稠密或稀疏）
-N_BOOT = 1000                                   # 平滑均值的 bootstrap 次数（95%CI）
+SMOOTH_QUANTILES = np.linspace(0.05, 0.95, 19)  # Knot points for quantile smoothing (can be modified to dense or sparse)
+N_BOOT = 1000                                   # Bootstrap samples for the smoothed mean (95% confidence interval)
 
-# 分箱参数
-LEN_BINS_EQUALWIDTH = 8     # 长度等宽箱数
-LEN_BINS_QUANTILES  = 8     # 长度分位箱数
-GC_BINS_EQUALWIDTH  = 8     # GC 等宽箱数
-GC_BINS_QUANTILES   = 8     # GC 分位箱数
+# Partitioning Parameters
+LEN_BINS_EQUALWIDTH = 8     # Number of boxes of equal width
+LEN_BINS_QUANTILES  = 8     # Length quantile box number
+GC_BINS_EQUALWIDTH  = 8     # GC fixed-width box count
+GC_BINS_QUANTILES   = 8     # GC quantile box count
 # =================================================
 
-# ---- 全局字体：非斜体 ----
+# ---- Global font: Non-italic ----
 matplotlib.rcParams.update({
     "font.family": "sans-serif",
     "font.sans-serif": ["DejaVu Sans", "Arial", "Liberation Sans", "Noto Sans CJK SC"],
@@ -69,16 +63,16 @@ def _save_dual(fig, out_base: Path, dpi: int):
     plt.close(fig)
 
 def _auto_pick_columns(df: pd.DataFrame) -> Tuple[str, str]:
-    """自动识别真值列与预测列；失败则抛错。"""
+    """Automatically identifies true value columns and predicted columns; failure results in an error being thrown."""
     cand_y_true = ["true","target","label","y","y_true","ground_truth","half_life","halflife","halflife_true"]
     cand_y_pred = ["pred","prediction","y_pred","yhat","y_hat","predicted","prediction_mean"]
     y_true_col = None; y_pred_col = None
-    # 直接命中
+    # Direct Hit
     for c in df.columns:
         if c.lower() in cand_y_true: y_true_col = c; break
     for c in df.columns:
         if c.lower() in cand_y_pred: y_pred_col = c; break
-    # 包含关系兜底
+    # Inclusion relationship catch-all
     if y_true_col is None:
         for c in df.columns:
             cl = c.lower()
@@ -90,11 +84,11 @@ def _auto_pick_columns(df: pd.DataFrame) -> Tuple[str, str]:
             if any(k in cl for k in ["pred","hat","predict"]):
                 y_pred_col = c; break
     if y_true_col is None or y_pred_col is None:
-        raise ValueError(f"无法自动识别真值/预测列，请检查列名：{list(df.columns)}")
+        raise ValueError(f"Unable to automatically identify true/prediction columns. Please check the column names:{list(df.columns)}")
     return y_true_col, y_pred_col
 
 def _seq_len_gc(series: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
-    """从 sequence 计算长度与 GC 比例（忽略非 ACGTN 的字符）。"""
+    """Calculate the length and GC content of the sequence (ignoring characters other than ACGTN)."""
     lens = []
     gcs  = []
     for s in series.astype(str).tolist():
@@ -112,7 +106,7 @@ def _seq_len_gc(series: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
     return np.array(lens, dtype=int), np.array(gcs, dtype=float)
 
 def _ensure_len_gc(df: pd.DataFrame) -> pd.DataFrame:
-    """优先从 sequence 计算；若无 sequence，则尝试已有 length/gc 列；都无则报错。"""
+    """Prioritize from sequence; if there is no sequence, then try existing length/gc columns; if there is none, then report an error."""
     out = df.copy()
     have_seq = "sequence" in out.columns
     if have_seq:
@@ -120,7 +114,7 @@ def _ensure_len_gc(df: pd.DataFrame) -> pd.DataFrame:
         out["utr_len"] = lens
         out["gc_frac"] = gcs
     else:
-        # 兜底列名
+        # Catch-all listing
         len_col = None; gc_col = None
         for c in out.columns:
             cl = c.lower()
@@ -129,7 +123,7 @@ def _ensure_len_gc(df: pd.DataFrame) -> pd.DataFrame:
             if gc_col is None and ("gc" in cl and "frac" in cl) or cl in ("gc","gc_content","gc_fraction"):
                 gc_col = c
         if len_col is None or gc_col is None:
-            raise ValueError("未找到 sequence 列，且缺少可用的长度/GC 列。请提供 sequence 或 length/gc 列。")
+            raise ValueError("The sequence column was not found and the available length/gc column is missing. Please provide the sequence or length/gc column.")
         out["utr_len"] = out[len_col].astype(int).values
         out["gc_frac"] = out[gc_col].astype(float).values
     return out
@@ -144,7 +138,7 @@ def _summary_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]
     return {"MAE": mae, "RMSE": rmse, "R2": r2, "Pearson": pr, "Spearman": sr}
 
 def _quantile_smooth(x: np.ndarray, y: np.ndarray, qs: np.ndarray, n_boot=1000, seed=20251016):
-    """按 x 的分位点做分箱平滑，输出 (x_mid, mean_y, ci_lo, ci_hi)。"""
+    """Perform binning smoothing based on the quantile points of x, output (x_mid, mean_y, ci_lo, ci_hi)。"""
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     xq = np.quantile(x, qs)
@@ -170,22 +164,22 @@ def _quantile_smooth(x: np.ndarray, y: np.ndarray, qs: np.ndarray, n_boot=1000, 
 
 def _bar_with_ci(labels: List[str], vals: np.ndarray, title: str, ylabel: str, out_base: Path):
     import re
-    # 1) 压缩标签："[100,200]" -> "100–200"；"[0.12,0.25]" -> "0.12–0.25"
+    # 1) Compression label:"[100,200]" -> "100–200"；"[0.12,0.25]" -> "0.12–0.25"
     def _shorten(l: str) -> str:
         s = str(l)
-        s = re.sub(r"[\[\]\s]", "", s)   # 去括号和空格
-        s = s.replace(",", "–")          # 用 en dash 连接
+        s = re.sub(r"[\[\]\s]", "", s)   # Remove brackets and spaces
+        s = s.replace(",", "–")          # Connect with an en dash
         return s
 
     short = [_shorten(l) for l in labels]
 
-    # 2) 画布更宽一些，给旋转刻度留空间
+    # 2) Widen the canvas to accommodate space for the rotating scale.
     fig, ax = plt.subplots(figsize=(7.8, 4.8))
 
     x = np.arange(len(short))
     ax.bar(x, vals)
 
-    # 3) 自动抽稀：标签多时只显示部分刻度（最多 ~14 个）
+    # 3) Auto-scaling: When multiple labels are present, only a portion of the scale is displayed (up to ~14 units).
     max_ticks = 14
     if len(short) > max_ticks:
         step = int(np.ceil(len(short) / max_ticks))
@@ -196,7 +190,7 @@ def _bar_with_ci(labels: List[str], vals: np.ndarray, title: str, ylabel: str, o
         ax.set_xticks(x)
         ax.set_xticklabels(short, rotation=30, ha="right", fontsize=9)
 
-    # 4) 额外留白，避免左右贴边
+    # 4) Leave additional white space to avoid touching the left and right edges.
     ax.margins(x=0.02)
     ax.tick_params(axis="x", pad=6)
     fig.subplots_adjust(bottom=0.26)
@@ -221,15 +215,15 @@ def _mae_by_bins(x: np.ndarray, y_true: np.ndarray, y_pred: np.ndarray, edges: n
 
 def main():
     outdir = _ensure_outdir()
-    print("[输出目录]", outdir)
+    print("[Output directory]", outdir)
 
     fp = Path(RUN_DIR) / INPUT_FILE
     if not fp.is_file():
-        raise FileNotFoundError(f"未找到输入文件：{fp}")
+        raise FileNotFoundError(f"Input file not found:{fp}")
 
     df = pd.read_csv(fp).dropna(how="all").copy()
     y_true_col, y_pred_col = _auto_pick_columns(df)
-    print(f"[列识别] y_true={y_true_col} | y_pred={y_pred_col}")
+    print(f"[Column identification] y_true={y_true_col} | y_pred={y_pred_col}")
 
     df = _ensure_len_gc(df)
     y_true = df[y_true_col].astype(float).values
@@ -238,14 +232,14 @@ def main():
     utr_len = df["utr_len"].astype(float).values
     gc_frac = df["gc_frac"].astype(float).values
 
-    # 概览指标
+    # Overview Indicators
     summ = _summary_metrics(y_true, y_pred)
     with open(outdir / "summary.txt", "w", encoding="utf-8") as f:
         for k, v in summ.items():
             f.write(f"{k}: {v:.6g}\n")
     pd.DataFrame({"metric": list(summ.keys()), "value": list(summ.values())}).to_csv(outdir / "summary.csv", index=False)
 
-    # ===== 1) y_pred vs length（平滑） =====
+    # ===== 1) y_pred vs length（Smooth） =====
     xm, ym, ylo, yhi = _quantile_smooth(utr_len, y_pred, SMOOTH_QUANTILES, n_boot=N_BOOT)
     pd.DataFrame({"x_mid_len": xm, "mean_pred": ym, "ci_lo": ylo, "ci_hi": yhi}).to_csv(outdir / "pred_vs_len_smooth.csv", index=False)
     fig, ax = plt.subplots(figsize=(6.6,4.6))
@@ -258,7 +252,7 @@ def main():
     ax.grid(True, linestyle="--", alpha=0.35)
     _save_dual(fig, outdir / "pred_vs_len", DPI)
 
-    # ===== 2) residual vs length（平滑） =====
+    # ===== 2) residual vs length（Smooth） =====
     xm2, ym2, ylo2, yhi2 = _quantile_smooth(utr_len, resid, SMOOTH_QUANTILES, n_boot=N_BOOT)
     pd.DataFrame({"x_mid_len": xm2, "mean_resid": ym2, "ci_lo": ylo2, "ci_hi": yhi2}).to_csv(outdir / "resid_vs_len_smooth.csv", index=False)
     fig, ax = plt.subplots(figsize=(6.6,4.6))
@@ -272,7 +266,7 @@ def main():
     ax.grid(True, linestyle="--", alpha=0.35)
     _save_dual(fig, outdir / "resid_vs_len", DPI)
 
-    # ===== 3) y_pred vs GC（平滑） =====
+    # ===== 3) y_pred vs GC（Smooth） =====
     xm3, ym3, ylo3, yhi3 = _quantile_smooth(gc_frac, y_pred, SMOOTH_QUANTILES, n_boot=N_BOOT)
     pd.DataFrame({"x_mid_gc": xm3, "mean_pred": ym3, "ci_lo": ylo3, "ci_hi": yhi3}).to_csv(outdir / "pred_vs_gc_smooth.csv", index=False)
     fig, ax = plt.subplots(figsize=(6.6,4.6))
@@ -285,7 +279,7 @@ def main():
     ax.grid(True, linestyle="--", alpha=0.35)
     _save_dual(fig, outdir / "pred_vs_gc", DPI)
 
-    # ===== 4) residual vs GC（平滑） =====
+    # ===== 4) residual vs GC（Smooth） =====
     xm4, ym4, ylo4, yhi4 = _quantile_smooth(gc_frac, resid, SMOOTH_QUANTILES, n_boot=N_BOOT)
     pd.DataFrame({"x_mid_gc": xm4, "mean_resid": ym4, "ci_lo": ylo4, "ci_hi": yhi4}).to_csv(outdir / "resid_vs_gc_smooth.csv", index=False)
     fig, ax = plt.subplots(figsize=(6.6,4.6))
@@ -299,8 +293,8 @@ def main():
     ax.grid(True, linestyle="--", alpha=0.35)
     _save_dual(fig, outdir / "resid_vs_gc", DPI)
 
-    # ===== 5) MAE by length：等宽 & 分位 =====
-    # 等宽
+    # ===== 5) MAE by length：Monospace & Quantile =====
+    # Monospace
     len_min, len_max = float(np.nanmin(utr_len)), float(np.nanmax(utr_len))
     len_edges_w = np.linspace(len_min, len_max, LEN_BINS_EQUALWIDTH+1)
     len_labels_w = [f"[{int(len_edges_w[j])},{int(len_edges_w[j+1])}]" for j in range(LEN_BINS_EQUALWIDTH)]
@@ -308,17 +302,17 @@ def main():
     pd.DataFrame({"length_bin": len_labels_w, "mae": mae_w}).to_csv(outdir / "mae_by_len_equalwidth.csv", index=False)
     _bar_with_ci(len_labels_w, mae_w, "MAE by 3'UTR length (equal-width)", "MAE", outdir / "mae_by_len_equalwidth")
 
-    # 分位
+    # quantile
     qs_len = np.linspace(0.0, 1.0, LEN_BINS_QUANTILES+1)
     len_edges_q = np.quantile(utr_len, qs_len)
-    len_edges_q[0] = len_min; len_edges_q[-1] = len_max  # 扩到端点
+    len_edges_q[0] = len_min; len_edges_q[-1] = len_max  # Extend to the endpoint
     len_labels_q = [f"[{int(len_edges_q[j])},{int(len_edges_q[j+1])}]" for j in range(LEN_BINS_QUANTILES)]
     mae_q = _mae_by_bins(utr_len, y_true, y_pred, len_edges_q, len_labels_q)
     pd.DataFrame({"length_bin": len_labels_q, "mae": mae_q}).to_csv(outdir / "mae_by_len_quantile.csv", index=False)
     _bar_with_ci(len_labels_q, mae_q, "MAE by 3'UTR length (quantile)", "MAE", outdir / "mae_by_len_quantile")
 
-    # ===== 6) MAE by GC：等宽 & 分位 =====
-    # 等宽
+    # ===== 6) MAE by GC：Monospace & Quantile =====
+    # Monospace
     gc_min, gc_max = float(np.nanmin(gc_frac)), float(np.nanmax(gc_frac))
     gc_edges_w = np.linspace(gc_min, gc_max, GC_BINS_EQUALWIDTH+1)
     gc_labels_w = [f"[{gc_edges_w[j]:.2f},{gc_edges_w[j+1]:.2f}]" for j in range(GC_BINS_EQUALWIDTH)]
@@ -326,7 +320,7 @@ def main():
     pd.DataFrame({"gc_bin": gc_labels_w, "mae": mae_gw}).to_csv(outdir / "mae_by_gc_equalwidth.csv", index=False)
     _bar_with_ci(gc_labels_w, mae_gw, "MAE by GC fraction (equal-width)", "MAE", outdir / "mae_by_gc_equalwidth")
 
-    # 分位
+    # quantile
     qs_gc = np.linspace(0.0, 1.0, GC_BINS_QUANTILES+1)
     gc_edges_q = np.quantile(gc_frac, qs_gc)
     gc_edges_q[0] = gc_min; gc_edges_q[-1] = gc_max
@@ -335,7 +329,7 @@ def main():
     pd.DataFrame({"gc_bin": gc_labels_q, "mae": mae_gq}).to_csv(outdir / "mae_by_gc_quantile.csv", index=False)
     _bar_with_ci(gc_labels_q, mae_gq, "MAE by GC fraction (quantile)", "MAE", outdir / "mae_by_gc_quantile")
 
-    # 保存一次配置快照
+    # Save a configuration snapshot
     with open(outdir / "config_snapshot.json", "w", encoding="utf-8") as f:
         json.dump({
             "RUN_DIR": RUN_DIR,
@@ -348,7 +342,7 @@ def main():
             "GC_BINS_QUANTILES": GC_BINS_QUANTILES,
         }, f, ensure_ascii=False, indent=2)
 
-    print("[完成] 图表与 CSV 输出至：", outdir)
+    print("[Completed] Charts and CSV output to:", outdir)
 
 if __name__ == "__main__":
     main()

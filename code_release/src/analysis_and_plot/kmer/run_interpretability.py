@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-run_interpretability.py —— 与主程序对齐的可解释性分析脚本（内置参数版，无需命令行）
+run_interpretability.py —— Interpretability analysis script aligned with the main program
 
-如何使用：
-1) 仅修改下方 RunParams 中的 4 个字段：
-   - EXP_DIR：你的最终训练目录（含 best_model_final.pth；如果有 final_test_predictions.csv 会优先读）
-   - NUM_MUTATION_SAMPLES：in-silico 突变抽样序列数
-   - MOTIFS：需要检测/做突变的 motif 列表（逗号分隔或 list）
-   - REPLACEMENTS：对应的替代序列候选（逗号分隔或 list；长度要与 motif 相同）
+How to use:
+1) Modify only the 4 fields in RunParams below:
+   - EXP_DIR: Your final training directory (containing best_model_final.pth; final_test_predictions.csv will be read first if present)
+   - NUM_MUTATION_SAMPLES: Number of in-silico mutation sampling sequences
+   - MOTIFS: List of motifs to detect/mutate (comma-separated or list)
+   - REPLACEMENTS: Corresponding replacement sequence candidates (comma-separated or list; length must match motif)
 
-2) 运行：python run_interpretability.py
-   结果输出到：项目根目录 / result / interpretability_result / 时间戳 / ...
+2) Run: python run_interpretability.py
+   Outputs to: Project root directory / result / interpretability_result / timestamp / ...
 """
 
 import os
@@ -35,35 +35,35 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_squared_error
 
 # ======================
-# 0. 仅修改这里（内置参数）
+# 0. Modify only here
 # ======================
 class RunParams:
-    # 你的最终训练目录（含 best_model_final.pth；若含 final_test_predictions.csv 会直接使用）
+    # Your final training directory (containing best_model_final.pth; if it contains final_test_predictions.csv, it will be used directly)
     EXP_DIR: str = "/ABSOLUTE/OR/RELATIVE/PATH/TO/your_final_run_dir"
 
-    # === 新增：变更 in-silico 架构 ===
-    # "full"：全量枚举（对含 motif 的所有序列、所有出现位置、所有替代序列逐一评估）
-    # "per-motif"：按 motif 独立抽样（每个 motif 至少抽 NUM_MUTATION_SAMPLES 条“含该 motif”的序列）
-    MUTATION_MODE: str = "full"   # 可设为 "per-motif"
+    # === New: Change in-silico architecture ===
+    # "full": Full enumeration (evaluating every sequence containing the motif, every occurrence position, and every alternative sequence individually)
+    # "per-motif": Independently sample sequences per motif (each motif must yield at least NUM_MUTATION_SAMPLES sequences containing that motif).
+    MUTATION_MODE: str = "full"   # Can be set to "per-motif"
 
-    # in-silico 突变抽样的“配额基准”
-    # - 当 MUTATION_MODE="full" 时，此参数会被忽略（全量枚举）
-    # - 当 MUTATION_MODE="per-motif" 时，此参数作为“每个 motif 的最少样本配额”
+    # Quota-based in silico mutation sampling
+    # - When MUTATION_MODE="full", this parameter is ignored (full enumeration).
+    # - When MUTATION_MODE="per-motif", this parameter serves as the "minimum sample quota per motif".
     NUM_MUTATION_SAMPLES: int = 2125
 
-    # 需要统计/突变的 motifs（RNA 字母表，示例为你给的清单）
+    # Motifs requiring statistical analysis/mutation (RNA alphabet, examples from the list you provided)
     MOTIFS =       "GAGGU,GCACU,CACCA,ACCAC,CCUAA,UCACC,CGAAU,AGAAG,UCUUG,GUGUA,CACUU,AAAGU,UUGUAU,AUAAUU,AUGCA,UUUAUG,GGUGU,AAAUGA,AUUUA,UUAUUU,CCCCC,GCGCGC"
 
-    # 替代序列（与上面 MOTIFS 等长；可以是 1:多 的“候选集合”，每个 motif 都会逐一尝试）
+    # Alternative sequences (same length as the MOTIFS above; can be a 1:many "candidate set," where each motif is tried individually)
     REPLACEMENTS = "GAAGU,GCGCU,CAACA,ACAAC,CCGAA,UCGCC,CGGAU,AGGAG,UCGUG,GUAUA,CAAUU,AAGGU,UUAUAU,AUGAUU,AUACA,UUGAUG,GGGGU,AAGUGA,AUAUA,UUGUGU,CUAUA,GUAUAC"
 
 
-    # （可选）限制“每条序列、每个 motif”的枚举位置数量，避免极端长序列组合爆炸；None 表示不限制
+    # (Optional) Limit the number of enumeration positions per sequence and per motif to prevent an explosion of extremely long sequence combinations; None indicates no restriction.
     MAX_POS_PER_SEQ_PER_MOTIF: int | None = None
 
 
 # ======================
-# 1. 与主程序一致的配置
+# 1. Configuration consistent with the main program
 # ======================
 class Config:
     DATA_PATH = 'data/mRNA_half_life_dataset_RNA.csv'
@@ -77,7 +77,7 @@ class Config:
     RANDOM_SEED = 42
 
 # ======================
-# 2. 实用函数
+# 2. Utility Functions
 # ======================
 def set_seed(seed: int = 42):
     import random
@@ -94,7 +94,7 @@ def get_device():
     return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def create_output_dir():
-    # 输出到：脚本所在上一层 / result / interpretability_result / <timestamp>
+    # Output to: The directory above where the script is located / result / interpretability_result / <timestamp>
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     base_dir = os.path.join(project_root, "result", "interpretability_result")
@@ -107,41 +107,40 @@ def create_output_dir():
 
 
 def _parse_items_list(x):
-    """把 'A,B,C' 或 list 转成大写 list[str]，去掉空项。"""
+    """Convert 'A,B,C' or list to uppercase list[str], removing empty items."""
     if isinstance(x, (list, tuple)):
         return [str(s).strip().upper() for s in x if str(s).strip()]
     return [s.strip().upper() for s in str(x).split(",") if s.strip()]
 
 def build_paired_mapping(params) -> dict[str, list[str]]:
     """
-    生成一一对应映射：{ motif -> [replacement, ...] }
-    - MOTIFS 与 REPLACEMENTS 必须等长（位置对齐）；
-    - 自动跳过“长度不等”的无效配对；
-    - 同一 motif 如出现多次，可对应多个替代（聚合到 list）。
+   Generate one-to-one mapping: { motif -> [replacement, ...] }
+- MOTIFS and REPLACEMENTS must be of equal length (positionally aligned);
+- Invalid pairs with “unequal lengths” are automatically skipped;
+- If the same motif occurs multiple times, it can correspond to multiple replacements (aggregated to a list).
     """
     motifs = _parse_items_list(params.MOTIFS)
     repls  = _parse_items_list(params.REPLACEMENTS)
     if len(motifs) != len(repls):
-        raise ValueError(f"MOTIFS 与 REPLACEMENTS 数量不一致：{len(motifs)} vs {len(repls)}")
+        raise ValueError(f"MOTIFS does not match the number of REPLACEMENTS:{len(motifs)} vs {len(repls)}")
     mapping: dict[str, list[str]] = {}
     for m, r in zip(motifs, repls):
         if len(m) != len(r):
-            print(f"[warn] 跳过长度不等的配对: {m} vs {r}")
+            print(f"[warn] Skip pairs of varying lengths: {m} vs {r}")
             continue
         mapping.setdefault(m, [])
         if r not in mapping[m]:
             mapping[m].append(r)
     if not mapping:
-        raise ValueError("没有有效的 motif→replacement 配对（请检查长度是否一致）")
+        raise ValueError("No valid motif→replacement pairs (please check for length consistency)")
     return mapping
 
 # ======================
-# 3. 数据集与 collate（无 chunk，返回 sequence）
-# ======================
+# 3. dataset with collate (no chunk, returns sequence)# ======================
 class MRNADataset(Dataset):
     def __init__(self, sequences, targets=None):
         self.sequences = sequences
-        self.targets = targets  # 评估时可为 None
+        self.targets = targets  # Can be None during assessment
 
     def __len__(self):
         return len(self.sequences)
@@ -176,7 +175,7 @@ def collate_fn_no_chunk(batch, tokenizer, config: Config):
     return out
 
 # ======================
-# 4. 模型（RNA-FM + TokenTransformerHead）
+# 4. Model (RNA-FM + TokenTransformerHead)
 # ======================
 class _SinPosEnc(nn.Module):
     def __init__(self, dim: int, max_len: int = 4096):
@@ -251,14 +250,14 @@ class ChunkingMRNATransformer(nn.Module):
         return self.token_head(token_embeddings, attention_mask)
 
 # ======================
-# 5. 推理与评估（log 空间→线性空间）
+# 5. Inference and Evaluation (log space → linear space)
 # ======================
 @torch.no_grad()
 def predict_dataset(model, loader, device, loss_fn=None, has_target=True):
     model.eval()
     total_loss = 0.0
     y_true_log, y_pred_log, seqs = [], [], []
-    for batch in tqdm(loader, desc="预测中", leave=False):
+    for batch in tqdm(loader, desc="Prediction", leave=False):
         input_ids = batch["input_ids"].to(device)
         attention_mask = batch["attention_mask"].to(device)
 
@@ -289,10 +288,10 @@ def predict_dataset(model, loader, device, loss_fn=None, has_target=True):
         return {"pred": y_pred, "sequence": seqs}
 
 def _read_state_dict_flex(ckpt_path, device):
-    """尽可能从各种常见格式里取出真正的 state_dict，并剥离常见前缀。"""
+    """Extract genuine state_dict objects from various common formats wherever possible, and strip off common prefixes."""
     obj = torch.load(ckpt_path, map_location=device)
 
-    # 1) 从常见外壳里解嵌套
+    # 1) Extracting nested structures from common enclosures
     if isinstance(obj, dict):
         for key in ["state_dict", "model_state_dict", "model", "net", "ema_state_dict"]:
             if key in obj and isinstance(obj[key], dict):
@@ -304,7 +303,7 @@ def _read_state_dict_flex(ckpt_path, device):
 
     state = obj
 
-    # 2) 连续剥常见前缀
+    # 2) Common prefixes for consecutive stripping
     def strip_prefix(d, prefix):
         return { (k[len(prefix):] if k.startswith(prefix) else k): v for k, v in d.items() }
 
@@ -315,45 +314,44 @@ def _read_state_dict_flex(ckpt_path, device):
 
 
 def load_trained_model(exp_dir, config: Config, device):
-    """更健壮的权重加载：能对上的就加载，对不上的保持预训练权重。"""
-    # 允许你仍用 best_model_final.pth；若不存在，可自己改成你目录里的 ckpt 名
+    """More robust weight loading: Load weights where possible, retaining pre-trained weights where not."""
     weight_path = os.path.join(exp_dir, "best_model_final.pth")
     if not os.path.exists(weight_path):
-        # 兜底：找目录里第一个 .pth
         cand = [f for f in os.listdir(exp_dir) if f.endswith(".pth")]
         if not cand:
-            raise FileNotFoundError(f"未找到权重文件：{weight_path}，且目录下也没有 .pth。")
+            raise FileNotFoundError(f"The weight file {weight_path} was not found, and there is no .pth file in the directory.")
         weight_path = os.path.join(exp_dir, cand[0])
 
-    # 构建模型（先加载预训练 RNA-FM）
+    # Build the model (first load the pre-trained RNA-FM)
     model = ChunkingMRNATransformer(config).to(device)
 
-    # 取出 checkpoint 的 state_dict 并做键名清洗
+    # Extract the state_dict from the checkpoint and perform key name sanitisation.
     raw_state = _read_state_dict_flex(weight_path, device)
 
-    # === 新增：把 ckpt 的 bert.* / 纯 HF 键 映射到 wrapper 的 backbone.* ===
+    # === New: Map ckpt's bert.* / pure HF keys to wrapper's backbone.*  ===
     def remap_backbone_prefix(state: dict) -> dict:
         """
-        将 ckpt 的 bert.* / 纯 HF 键(embeddings./encoder./pooler.) 映射为 wrapper 的 backbone.*
-        不动 token_head.* 等其它键；并清理可能的 backbone.backbone.* 重复前缀。
+        Map ckpt's bert.* / pure HF keys (embeddings./encoder./pooler.) to wrapper's backbone.*
+        Leave token_head.* and other keys untouched;
+        and clean up any potential backbone.backbone.* duplicate prefixes.
         """
         keys = list(state.keys())
         has_backbone = any(k.startswith("backbone.") for k in keys)
         has_bert = any(k.startswith("bert.") for k in keys)
 
-        # 情况1：ckpt 用的是 bert.* —— 映射到 backbone.*
+        # Scenario 1: ckpt utilises bert.* — mapped to backbone.*
         if has_bert and not has_backbone:
             state = {("backbone." + k[5:] if k.startswith("bert.") else k): v for k, v in state.items()}
             keys = list(state.keys())
             has_backbone = any(k.startswith("backbone.") for k in keys)
 
-        # 情况2：ckpt 是纯 HF 键（无前缀）：embeddings./encoder./pooler.
+        # Scenario 2: ckpt is a pure HF key (no prefix): embeddings./encoder./pooler.
         has_hf_root = any(k.startswith(("embeddings.", "encoder.", "pooler.")) for k in keys)
         if has_hf_root and not has_backbone:
             state = {("backbone." + k if k.startswith(("embeddings.", "encoder.", "pooler.")) else k): v
                      for k, v in state.items()}
 
-        # 清理可能的重复前缀
+        # Remove potential duplicate prefixes
         state = {(k.replace("backbone.backbone.", "backbone.") if k.startswith("backbone.backbone.") else k): v
                  for k, v in state.items()}
         return state
@@ -362,7 +360,7 @@ def load_trained_model(exp_dir, config: Config, device):
 
     model_state = model.state_dict()
 
-    # 只保留“键存在且 shape 一致”的条目
+    # Retain only entries where the key exists and the shape is consistent.
     filtered = {}
     mismatched_shapes = {}
     for k, v in raw_state.items():
@@ -371,16 +369,16 @@ def load_trained_model(exp_dir, config: Config, device):
         elif k in model_state:
             mismatched_shapes[k] = {"ckpt": tuple(v.shape), "model": tuple(model_state[k].shape)}
 
-    # 加载（宽松模式）
+    # Loading (Relaxed Mode)
     missing, unexpected = model.load_state_dict(filtered, strict=False)
 
-    # 打印/记录加载报告（方便你审计）
+    # Print/record loading reports
     report = {
         "ckpt_path": weight_path,
         "loaded_keys": len(filtered),
-        "missing_in_ckpt_but_in_model": list(missing),      # 模型需要但 ckpt 没有（例如 backbone.*）
-        "unexpected_in_ckpt": list(unexpected),             # ckpt 里有但模型没有
-        "shape_mismatch": mismatched_shapes                 # 键同名但 shape 不同
+        "missing_in_ckpt_but_in_model": list(missing),
+        "unexpected_in_ckpt": list(unexpected),
+        "shape_mismatch": mismatched_shapes
     }
     try:
         out_dir, _, _ = create_output_dir()
@@ -389,7 +387,7 @@ def load_trained_model(exp_dir, config: Config, device):
     except Exception:
         pass
 
-    # 友好提示
+
     print(f"[ckpt] loaded {report['loaded_keys']} tensors from: {weight_path}")
     if report["missing_in_ckpt_but_in_model"]:
         print(f"[ckpt] missing keys (kept pretrained for these): {len(report['missing_in_ckpt_but_in_model'])}")
@@ -403,19 +401,19 @@ def load_trained_model(exp_dir, config: Config, device):
 
 
 # ======================
-# 6. motif 统计与 in-silico mutation
+# 6. motif Statistics and in-silico mutation
 # ======================
 
 
 def count_motif(seq: str, motif: str) -> int:
-    return len(re.findall(f"(?={motif})", seq))  # 支持重叠计数
+    return len(re.findall(f"(?={motif})", seq))  # Supports duplicate counting
 
 def tail_A_fraction(seq: str, tail_len: int = 50) -> float:
     tail = seq[-tail_len:] if len(seq) >= tail_len else seq
     return (tail.count("A") / len(tail)) if len(tail) > 0 else 0.0
 
 def make_motif_table(df_residuals: pd.DataFrame) -> pd.DataFrame:
-    motifs = ["AUUUA", "AATAAA", "ATTAAA"]  # 注意：如果你的序列是 DNA（含T），ARE 请改成 ATTTA
+    motifs = ["AUUUA", "AATAAA", "ATTAAA"]  # Note: If your sequence is DNA (containing T), please change ARE to ATTTA.
     records = []
     df_residuals = df_residuals.copy()
     df_residuals["tailA_frac_50"] = df_residuals["sequence"].apply(tail_A_fraction)
@@ -460,20 +458,20 @@ def run_mutation_suite(model, tokenizer, config, device,
                        replacements=("AGTAAA",),
                        sample_k=32) -> pd.DataFrame:
     """
-    In-silico 突变：
-      - 当 RunParams.MUTATION_MODE == "full" 时：全量枚举（所有含 motif 的样本 × 所有出现位置 × 所有替代序列）
-      - 当 RunParams.MUTATION_MODE == "per-motif" 时：对每个 motif 独立抽样，至少 sample_k（外层传入的 NUM_MUTATION_SAMPLES）条含该 motif 的样本
+    In-silico mutation:
+      - When RunParams.MUTATION_MODE == "full": exhaustive enumeration (all samples containing motifs × all occurrence positions × all alternative sequences)
+      - When RunParams.MUTATION_MODE == "per-motif": Independently sample at least sample_k (NUM_MUTATION_SAMPLES passed as outer parameter) samples containing each motif
 
-    返回列：sample_idx, motif, new, pos, base_pred, mut_pred, delta, sequence
+    Return columns: sample_idx, motif, new, pos, base_pred, mut_pred, delta, sequence
     """
     rng = np.random.default_rng(2024)
 
-    # 一一对应映射（按 RunParams.MOTIFS 与 REPLACEMENTS 对齐）
+    # One-to-one mapping (aligned by RunParams.MOTIFS with REPLACEMENTS)
     params = RunParams()
     motif_to_repls = build_paired_mapping(params)
     motifs = list(motif_to_repls.keys())
 
-    # 仅在“含任一目标 motif 的序列”上进行（避免无效样本）
+    # Performed solely on sequences containing any target motif (to avoid invalid samples)
     union_pat = re.compile("(?:%s)" % "|".join(map(re.escape, motifs)))
     has_any = df_base["sequence"].str.contains(union_pat)
 
@@ -481,7 +479,7 @@ def run_mutation_suite(model, tokenizer, config, device,
     if len(eligible_all) == 0:
         return pd.DataFrame(columns=["sample_idx","motif","new","pos","base_pred","mut_pred","delta","sequence"])
 
-    # 计算/缓存 base_pred（只对会被用到的序列）
+    # Compute/cache base_pred (only for sequences that will be used)
     def batch_predict_base(idx_list: list[int]) -> dict[int, float]:
         seq_list = [df_base.iloc[i]["sequence"] for i in idx_list]
         preds = predict_sequence_list(model, tokenizer, config, device, seq_list)
@@ -492,11 +490,11 @@ def run_mutation_suite(model, tokenizer, config, device,
     max_pos_per_seq = params.MAX_POS_PER_SEQ_PER_MOTIF
 
     if getattr(params, "MUTATION_MODE", "full") == "full":
-        # ========= 全量枚举 =========
-        # 对所有“含任一 motif”的序列，先一次性拿到 base_pred
+        # ========= Full Enumeration =========
+        # For all sequences containing any motif, first obtain base_pred in one go
         base_pred_map = batch_predict_base(list(eligible_all))
 
-        # 逐条序列处理：对该序列中每个 motif 的每个出现位置，构造全部替代，批量预测
+        # Sequence processing by motif: For each occurrence of a motif within the sequence, construct all possible substitutions and perform batch prediction.
         for idx in tqdm(eligible_all, desc="In-silico mutation (full)", leave=False):
             seq = df_base.iloc[idx]["sequence"]
             base_pred = base_pred_map[idx]
@@ -505,7 +503,7 @@ def run_mutation_suite(model, tokenizer, config, device,
             for motif in motifs:
                 positions = [m.start() for m in re.finditer(f"(?={motif})", seq)]
                 if max_pos_per_seq is not None and len(positions) > max_pos_per_seq:
-                    # 如需限制位置数量，随机抽指定个数
+                    # To limit the number of positions, randomly select a specified number.
                     positions = list(rng.choice(positions, size=max_pos_per_seq, replace=False))
                 for pos in positions:
                     for newmotif in motif_to_repls.get(motif, []):
@@ -516,7 +514,7 @@ def run_mutation_suite(model, tokenizer, config, device,
             if not mut_tasks:
                 continue
 
-            # 对该序列的所有突变一次性预测
+            # A single-step prediction of all mutations in this sequence
             mut_preds = predict_sequence_list(model, tokenizer, config, device, [t[3] for t in mut_tasks])
             for (motif, newmotif, pos, _), mp in zip(mut_tasks, mut_preds):
                 records.append({
@@ -531,9 +529,9 @@ def run_mutation_suite(model, tokenizer, config, device,
                 })
 
     else:
-        # ========= per-motif 抽样 =========
-        per_quota = int(sample_k)  # 外层传入的是 RunParams.NUM_MUTATION_SAMPLES
-        # 为每个 motif 找出“含该 motif”的样本集合，并按配额抽样
+        # ========= per-motif sampling =========
+        per_quota = int(sample_k)  # The outer layer receives RunParams.NUM_MUTATION_SAMPLES
+        # Identify the sample sets containing each motif and perform quota sampling.
         motif_to_indices: dict[str, np.ndarray] = {}
         for motif in motifs:
             m_pat = f"(?={re.escape(motif)})"
@@ -545,13 +543,13 @@ def run_mutation_suite(model, tokenizer, config, device,
             take = min(per_quota, len(idxs))
             motif_to_indices[motif] = rng.choice(idxs, size=take, replace=False)
 
-        # 需要 base_pred 的唯一样本索引集合
+        # The unique sample index set requiring base_pred
         uniq_idxs = sorted(set(int(i) for arr in motif_to_indices.values() for i in arr))
         if len(uniq_idxs) == 0:
             return pd.DataFrame(columns=["sample_idx","motif","new","pos","base_pred","mut_pred","delta","sequence"])
         base_pred_map = batch_predict_base(uniq_idxs)
 
-        # 逐 motif、逐样本、逐位置 枚举替代；对每个样本做“批量突变预测”
+        # Enumerate alternatives per motif, per sample, per position; perform "batch mutation prediction" for each sample.
         for motif, idx_arr in motif_to_indices.items():
             if len(idx_arr) == 0:
                 continue
@@ -588,16 +586,16 @@ def run_mutation_suite(model, tokenizer, config, device,
 
 
 # ======================
-# 7. 主流程（不再使用命令行）
+# 7. Main process
 # ======================
 def main():
-    # 读取内置参数
+    # Read built-in parameters
     params = RunParams()
     exp_dir = os.path.abspath(params.EXP_DIR)
     if not os.path.isdir(exp_dir):
-        raise FileNotFoundError(f"EXP_DIR 不存在或不是文件夹：{exp_dir}")
+        raise FileNotFoundError(f"EXP_DIR does not exist or is not a folder:{exp_dir}")
 
-    # 其余保持与主程序一致
+    # The remainder shall remain consistent with the main programme.
     cfg = Config()
     set_seed(cfg.RANDOM_SEED)
     device = get_device()
@@ -605,7 +603,7 @@ def main():
     out_dir, tb_dir, project_root = create_output_dir()
     writer = SummaryWriter(log_dir=tb_dir)
 
-    # 环境记录
+    # Environmental Records
     env = {
         "python_version": platform.python_version(),
         "torch_version": torch.__version__,
@@ -620,15 +618,15 @@ def main():
     with open(os.path.join(out_dir, "interpret_env.json"), "w") as f:
         json.dump(env, f, indent=4)
 
-    # 载入 tokenizer
+    # Loading tokenizer
     from multimolecule import RnaTokenizer
     tokenizer = RnaTokenizer.from_pretrained(cfg.PRETRAINED_MODEL_NAME, trust_remote_code=True)
     collate = partial(collate_fn_no_chunk, tokenizer=tokenizer, config=cfg)
 
-    # 载入已训练模型
+    # Load trained model
     model = load_trained_model(exp_dir, cfg, device)
 
-    # 读取主实验的测试集预测，若无则回退到按主程序拆分并预测
+    # Retrieve predictions from the main experiment's test set; if unavailable, fall back to splitting and predicting according to the main programme.
     test_pred_path = os.path.join(exp_dir, "final_test_predictions.csv")
     if os.path.exists(test_pred_path):
         df_base = pd.read_csv(test_pred_path)
@@ -640,7 +638,7 @@ def main():
     if df_base is None:
         data_path = os.path.join(project_root, cfg.DATA_PATH)
         if not os.path.exists(data_path):
-            raise FileNotFoundError(f"数据文件未找到：{data_path}")
+            raise FileNotFoundError(f"Data file not found：{data_path}")
         df_all = pd.read_csv(data_path).dropna(subset=["sequence", "Isoform Half-Life"]).copy()
         df_all["target"] = np.log1p(df_all["Isoform Half-Life"])
         df_train_val, df_test = train_test_split(df_all, test_size=0.2, random_state=cfg.RANDOM_SEED)
@@ -655,11 +653,11 @@ def main():
             "pred": metrics["pred"]
         })
 
-    # 残差表
+    # Residual table
     df_base["residual"] = df_base["true"] - df_base["pred"]
     df_base.to_csv(os.path.join(out_dir, "residuals.csv"), index=False)
 
-    # 写入测试指标（使用已有 pred/true）
+    # Write test metrics (using existing pred/true)
     try:
         r2 = r2_score(df_base["true"], df_base["pred"])
         mse = mean_squared_error(df_base["true"], df_base["pred"])
@@ -672,7 +670,7 @@ def main():
     except Exception:
         pass
 
-    # motif 与残差相关
+    # Motif and residual correlation
     df_corr = make_motif_table(df_base.copy())
     df_corr.to_csv(os.path.join(out_dir, "motif_corr.csv"), index=False)
     for _, row in df_corr.iterrows():
@@ -691,7 +689,7 @@ def main():
     )
     df_mut.to_csv(os.path.join(out_dir, "mutation_results.csv"), index=False)
 
-    # 总结
+    # Summary
     summary = {
         "n_test": int(len(df_base)),
         "test_R2": float(r2_score(df_base["true"], df_base["pred"])),
@@ -706,7 +704,7 @@ def main():
     with open(os.path.join(out_dir, "summary.json"), "w") as f:
         json.dump(summary, f, indent=4)
 
-    # 直方图写入TB
+    # Histogram written to TB
     try:
         writer.add_histogram("Residuals/hist", (df_base["residual"].values.astype(np.float32)), 0)
         if len(df_mut) > 0:
@@ -715,9 +713,9 @@ def main():
         pass
 
     writer.close()
-    print("\n✅ 解释性分析完成，结果保存在：", out_dir)
-    print("  - residuals.csv（残差表）")
-    print("  - motif_corr.csv（motif 与残差相关）")
+    print("\n  The explanatory analysis has been completed, with results saved in:", out_dir)
+    print("  - residuals.csv（Residual table）")
+    print("  - motif_corr.csv（motif related to residuals）")
     print("  - mutation_results.csv（in-silico mutation）")
     print("  - summary.json / interpret_env.json")
     print("  - TensorBoard：", os.path.join(out_dir, "tensorboard-log", "interpretability"))
