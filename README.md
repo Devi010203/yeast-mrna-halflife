@@ -23,7 +23,7 @@ Execute in the project root directory (the directory containing `pyproject.toml`
 # Install/synchronize dependencies and create a virtual environment (.venv/)
 uv sync
 
-# Run the main program (50% off cross-validation + full data complete training/evaluation)
+# Run the main program (5-fold cross-validation + full data complete training/evaluation)
 uv run main.py
 
 If you need to run separate analysis/plotting scripts, e.g. cross-validation results visualization:
