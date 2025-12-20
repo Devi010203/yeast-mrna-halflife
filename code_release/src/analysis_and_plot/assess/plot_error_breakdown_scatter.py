@@ -22,7 +22,7 @@ import scienceplots
 plt.style.use('science')
 
 # ========== Please fill in manually here==========
-RUN_DIR = r"F:/mRNA_Project/3UTR/Paper/result/5f_full_head_v3_20251024_01"   # ← Change to your full training output directory
+RUN_DIR = r"Path\To\Your\Training\Output\Directory"   # ← Change to your full training output directory
 INPUT_FILE = "final_test_predictions.csv"    # Should different filenames be required, these may be amended.
 DPI = 400
 

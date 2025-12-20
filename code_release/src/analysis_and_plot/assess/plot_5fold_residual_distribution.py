@@ -44,11 +44,11 @@ matplotlib.rcParams.update({
 # ========== Please fill in manually here==========
 # Specify a CSV path for each fold (only requires "true value column + predicted column"; column names will be automatically recognized)
 FOLD_FILES: Dict[str, str] = {
-    "Fold1": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01\val_predictions_fold1.csv",
-    "Fold2": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01\val_predictions_fold2.csv",
-    "Fold3": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01\val_predictions_fold3.csv",
-    "Fold4": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01\val_predictions_fold4.csv",
-    "Fold5": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01\val_predictions_fold5.csv",
+    "Fold1": r"Path\to\val_predictions_fold1.csv",
+    "Fold2": r"Path\to\val_predictions_fold2.csv",
+    "Fold3": r"Path\to\val_predictions_fold3.csv",
+    "Fold4": r"Path\to\val_predictions_fold4.csv",
+    "Fold5": r"Path\to\val_predictions_fold5.csv",
 }
 # Histogram Settings
 NBINS = 60

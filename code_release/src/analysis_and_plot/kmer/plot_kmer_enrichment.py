@@ -30,7 +30,7 @@ plt.style.use('science')
 
 # ========== Manual entry ==========
 CONFIG = {
-    "RUN_DIR": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01",  # It must contain final_test_predictions.csv
+    "RUN_DIR": r"Path\To\Your\Training\Output\Directory",  # It must contain final_test_predictions.csv
     "SAVE_SUBDIR": "kmer_enrichment",
 
     # k-mer Settings

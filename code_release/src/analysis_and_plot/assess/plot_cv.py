@@ -46,10 +46,10 @@ from sklearn.metrics import r2_score  # Used to back-calculate R² from val_pred
 CONFIG = {
     # Output directory from a specific run of the main program (containing files such as training_log.json, cv_summary.csv, val_predictions_fold*.csv, etc.)
     # For example:"/home/zdl4/mRNA/python/3UTR/runs_transformer_accumulation/test_withsavedata_20251007_01"
-    "RUN_DIR": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01",
+    "RUN_DIR": r"Path\To\Your\Training\Output\Directory",
 
     # Output subdirectory names -> result/plot/<SAVE_SUBDIR>/
-    "SAVE_SUBDIR": "5foldplot-2",
+    "SAVE_SUBDIR": "K-Fold-CrossValidation",
 
     # Number of calibrated compartments
     "CALIB_BINS": 20,

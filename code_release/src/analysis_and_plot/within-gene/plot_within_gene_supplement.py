@@ -22,11 +22,11 @@ import scienceplots
 
 
 # ====== Path configuration (modify as required; currently set to your preferred path) ======
-PER_GENE_CSV = Path(r"F:\mRNA_Project\3UTR\Paper\script\result\gene_isoform_analysis-2\per_gene_summary.csv")
-CROSS_GENE_CSV = Path(r"F:\mRNA_Project\3UTR\Paper\script\result\gene_isoform_analysis-2\cross_gene_median.csv")
+PER_GENE_CSV = Path(r"Path\to\gene_isoform_analysis\per_gene_summary.csv")
+CROSS_GENE_CSV = Path(r"Path\to\gene_isoform_analysis\cross_gene_median.csv")
 PER_ISOFORM_CSV = PER_GENE_CSV.parent / "analysis_per_isoform.csv"
 
-OUTDIR = Path(r"F:\mRNA_Project\3UTR\Paper\plots\result\plot\supp_within_gene-2")
+OUTDIR = Path(r"Path\to\plot\supp_within_gene")
 OUTDIR.mkdir(parents=True, exist_ok=True)
 
 plt.style.use(['science', 'no-latex'])

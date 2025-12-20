@@ -56,10 +56,10 @@ matplotlib.rcParams.update({
 # ========== Please fill in manually here ==========
 CONFIG = {
     # Complete training output directory (containing final_test_predictions.csv)
-    "RUN_DIR": r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01",
+    "RUN_DIR": r"Path\To\Your\Training\Output\Directory",
 
     # (Optional) Aggregate data CSV containing at least the ‘sequence’ with the 'Isoform Half-Life'
-    "DATA_CSV": r"F:\mRNA_Project\3UTR\data\processed\mRNA_half_life_dataset_RNA.csv",
+    "DATA_CSV": r"Path\to\mRNA_half_life_dataset_RNA.csv",
 
     # Output subdirectory name (located in the parent directory of the script, under `/result/plot/`)
     "SAVE_SUBDIR": "test_error_breakdown",

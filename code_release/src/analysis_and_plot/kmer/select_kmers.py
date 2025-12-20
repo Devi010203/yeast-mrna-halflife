@@ -26,10 +26,10 @@ import numpy as np
 # =========================
 CONFIG = dict(
     # Input k-mer enrichment summary table (e.g., your *_all.csv file)
-    ALL_CSV = r"F:\mRNA_Project\3UTR\Paper\plots\result\plot\kmer_enrichment\kmer_enrichment_results_all.csv",
+    ALL_CSV = r"Path\to\kmer_enrichment_results_all.csv",
 
     # Output directory (will be created automatically)
-    OUT_DIR = "F:/mRNA_Project/3UTR/Paper/plots/result/plot/select_kmers",
+    OUT_DIR = r"Pathto\select_kmers",
 
     # Basic screening threshold
     Q_MAX = 0.10,          # FDR threshold

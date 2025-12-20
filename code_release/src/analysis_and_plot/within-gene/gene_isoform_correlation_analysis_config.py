@@ -31,9 +31,9 @@ from scipy.stats import pearsonr, spearmanr
 # Set your paths and options here.
 CONFIG = {
     # File paths
-    "dataset": "F:/mRNA_Project/3UTR/Paper/data/mRNA_half_life_dataset.csv",
-    "predictions": "F:/mRNA_Project/3UTR/Paper/result/5f_full_head_v3_20251024_01/final_test_predictions.csv",
-    "outdir": "result/gene_isoform_analysis-2",
+    "dataset": r"Path\to\data\mRNA_half_life_dataset.csv",
+    "predictions": r"Path\to\final_test_predictions.csv",
+    "outdir": r"Path\to\result\gene_isoform_analysis",
 
     # Column names (set to None to auto-detect)
     "dataset_seq_col": None,    # e.g., "sequence"

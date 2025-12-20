@@ -35,9 +35,9 @@ plt.style.use(['science', 'no-latex'])
 # ============== Fill in manually here =============
 # Each partition can be either a "single CSV path" or a list of "multiple CSV paths"; the script will automatically merge them.
 SPLITS: Dict[str, List[str]] = {
-    "Train": [r"F:\mRNA_Project\3UTR\Paper\data_splits\data_splits_20251127_173725\final_split\train_set.csv"],
-    "Val.": [r"F:\mRNA_Project\3UTR\Paper\data_splits\data_splits_20251127_173725\final_split\val_set.csv"],
-    "Test": [r"F:\mRNA_Project\3UTR\Paper\data_splits\data_splits_20251127_173725\final_split\test_set.csv"],
+    "Train": [r"Path\to\train_set.csv"],
+    "Val.": [r"Path\to\val_set.csv"],
+    "Test": [r"Path\to\test_set.csv"],
 }
 
 # Global bin count for histogram (using globally consistent bins for all three distributions)

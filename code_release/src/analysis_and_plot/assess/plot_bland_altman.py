@@ -46,7 +46,7 @@ matplotlib.rcParams.update({
 })
 
 # ========= Please fill in manually here=========
-RUN_DIR   = r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01"   #  Change it to your complete training output directory.
+RUN_DIR   = r"Path\To\Your\Training\Output\Directory"   #  Change it to your complete training output directory.
 INPUT_CSV = "final_test_predictions.csv"       #  Change to actual filenames (must include predictions and actual values)
 DPI       = 400
 POINT_SIZE   = 10

@@ -54,17 +54,17 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 CONFIG = {
     # Your main training script (containing Config, ChunkingMRNATransformer, get_device; if collate_fn_no_chunk is
     # included, it will be prioritised)
-    "MODEL_CODE_PATH": r"F:\mRNA_Project\3UTR\Paper\script\5f_full_head_v3.py",
+    "MODEL_CODE_PATH": r"Path\To\Your\MainProgram.py",
 
     # Complete training output directory (must contain final_test_predictions.csv -> providing sequences)
-    "RUN_DIR": r"F:\mRNA_Project\3UTR\Paper\result\5f_full_head_v3_20251024_01",
+    "RUN_DIR": r"Path\To\Your\Training\Output\Directory",
 
     # Task Weight (.pth)
-    "CKPT_PATH": r"F:\mRNA_Project\3UTR\Paper\result\5f_full_head_v3_20251024_01\best_model_final.pth",
+    "CKPT_PATH": r"Path\to\best_model_final.pth",
 
     # Local tokeniser / RnaFmModel directory
-    "LOCAL_TOKENIZER_DIR": r"F:\mRNA_Project\3UTR\Paper\script\model\rna-fm",
-    "LOCAL_RNAFM_DIR": r"F:\mRNA_Project\3UTR\Paper\script\model\rna-fm",
+    "LOCAL_TOKENIZER_DIR": r"Path\to\rna-fm",
+    "LOCAL_RNAFM_DIR": r"Path\to\model\rna-fm",
 
     # Optional root directory (for resolving relative paths; if left blank, the parent directory of the script is used)
     "BASE_DIR": r"",
@@ -73,7 +73,7 @@ CONFIG = {
     "MODE": "all",
 
     # Cache Settings
-    "CACHE_ROOT": r"result/cache/positional_effects_rel",
+    "CACHE_ROOT": r"Path\to\cache\positional_effects_rel",
     "RUN_NAME": "",    # If left blank, it will be automatically combined into W{W}_S{S}_full/n{N}
 
     # Occlusion Settings

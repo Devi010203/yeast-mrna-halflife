@@ -46,7 +46,7 @@ matplotlib.rcParams.update({
 })
 
 # ========== Please fill in manually here ==========
-RUN_DIR = r"F:\mRNA_Project\3UTR\Paper\result\3utr_mrna_11.12\5f_full_head_v3_20251112_01"  # ← Change to your complete training output directory (including final_test_predictions.csv)
+RUN_DIR = r"Path\To\Your\Training\Output\Directory"  # ← Change to your complete training output directory (including final_test_predictions.csv)
 INPUT_FILE = "final_test_predictions.csv"   # If you have an alias, change it here.
 DPI = 400
 DO_LOG1P = True          # Should log1p residual versions 1–3 be generated additionally?

@@ -35,7 +35,7 @@ import matplotlib.pyplot as plt
 # ============== Users must manually specify ==============
 INPUT = {
     # Please replace this section with the output directory for your "final training phase" round of experiments (including files such as training_curve_final.csv).
-    "EXP_DIR": r"F:\mRNA_Project\3UTR\Paper\result\singlemain_v100_20251015_01"
+    "EXP_DIR": r"Path\To\Your\Training\Output\Directory"
 }
 # ==========================================
 

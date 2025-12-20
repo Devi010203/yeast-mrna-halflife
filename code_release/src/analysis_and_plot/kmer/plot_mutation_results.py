@@ -48,9 +48,9 @@ matplotlib.rcParams.update({
 @dataclass
 class CONFIG:
     # The path to your mutation_results.csv file (output from run_interpretability.py)
-    MUTATION_CSV: str = r"F:\mRNA_Project\3UTR\Paper\plots\result\plot\interpretability_result\20251113_101142\mutation_results.csv"
+    MUTATION_CSV: str = r"Path\to\mutation_results.csv"
     # Output Directory (Automatically Created)
-    OUT_DIR: str = r"F:\mRNA_Project\3UTR\Paper\plots\result\plot\mutation_plot"
+    OUT_DIR: str = r"Path\to\mutation_plot"
     # Top-KPlot after sorting by |mean_delta|
     TOPK: int = 18
     # Number of Positioned Boxes
