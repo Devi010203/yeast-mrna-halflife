@@ -60,6 +60,22 @@ class Config:
 
 
 # --- 2) Utils ---
+def validate_pretrained_directory(model_path):
+    """Check for a local MultiMolecule model/tokenizer bundle before loading."""
+    model_dir = Path(model_path).expanduser().resolve()
+    required = ("config.json", "tokenizer_config.json", "vocab.txt")
+    missing = [name for name in required if not (model_dir / name).is_file()]
+    if not any((model_dir / name).is_file() for name in ("model.safetensors", "pytorch_model.bin")):
+        missing.append("model.safetensors or pytorch_model.bin")
+    if missing:
+        raise FileNotFoundError(
+            f"Incomplete RNA-FM bundle at {model_dir}: missing {', '.join(missing)}. "
+            "Follow data_release/model/README.md. An original RNA-FM .pth file "
+            "must be converted; renaming it is not sufficient."
+        )
+    return str(model_dir)
+
+
 def set_seed(seed):
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -183,7 +199,13 @@ class ChunkingMRNATransformer(nn.Module):
         self.config = config
 
         print(f"The pre-trained RNA-FM model is currently being loaded from a local path.: {config.PRETRAINED_MODEL_NAME}")
-        self.bert = RnaFmModel.from_pretrained(config.PRETRAINED_MODEL_NAME, trust_remote_code=True)
+        model_dir = validate_pretrained_directory(config.PRETRAINED_MODEL_NAME)
+        self.bert = RnaFmModel.from_pretrained(model_dir, local_files_only=True)
+        if self.bert.config.hidden_size != config.EMBEDDING_DIM:
+            raise ValueError(
+                f"RNA-FM hidden_size={self.bert.config.hidden_size} does not match "
+                f"EMBEDDING_DIM={config.EMBEDDING_DIM}. Use the 640-dimensional RNA-FM backbone."
+            )
         self.token_head = TokenTransformerHead(
             dim=config.EMBEDDING_DIM,
             nhead=getattr(config, "TOKEN_ATTN_HEADS", 10),
@@ -419,7 +441,9 @@ if __name__ == '__main__':
 
     # tokenizer & collate
 
-    tokenizer = RnaTokenizer.from_pretrained(config.PRETRAINED_MODEL_NAME, trust_remote_code=True)
+    tokenizer = RnaTokenizer.from_pretrained(
+        validate_pretrained_directory(config.PRETRAINED_MODEL_NAME), local_files_only=True
+    )
     collate_with_chunking = partial(collate_fn_no_chunk, tokenizer=tokenizer, config=config)
 
     # --- K fold ---

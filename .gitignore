@@ -3,3 +3,8 @@
 *.pt
 data_release/predictions/
 models/
+.venv/
+.cache/
+__pycache__/
+code_release/src/rnafm-converted/
+data_release/model/rna-fm/
