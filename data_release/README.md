@@ -14,7 +14,7 @@ This directory is used to make public the **processed dataset** and the correspo
 
 - `model/`    Reserved directory for the storage of **pre-trained model files**:
   - This project relies on pre-trained model weights such as RNA-FM, but due to size and licensing reasons, they are not directly distributed with the repository;
-  - Users are requested to download the corresponding RNA-FM pre-training models and tokenizers from the official channels, and place the files in this directory (or according to the path description in the main program/configuration file), so as to reproduce the training and inference process locally.
+  - Follow [model/README.md](model/README.md) to download and convert the original RNA-FM checkpoint into a MultiMolecule model/tokenizer bundle at `model/rna-fm`. Placing or renaming an original `.pth` file is insufficient for the current code.
 
 ## Description of data sources and processing flow
 
@@ -41,7 +41,7 @@ Therefore, the files in `processed/` are derived results based on **public raw d
 
 - For complete reproduction of the experiment from scratch, you can:
   1. Synchronize the dependencies using `uv` as per the README of the main repository;
-  2. Place the downloaded RNA-FM pre-trained model files into the `data_release/model/` directory;
+  2. Install the converted model/tokenizer bundle following [model/README.md](model/README.md), then run `uv run check_rnafm.py` from `code_release/src`;
   3. run training and evaluation using the data in `data_release/processed/` and `data_release/predictions/` according to the paths configured in the main program (e.g., `main.py` or training script).
 
 - For downstream analysis only (e.g., replotting, additional statistics), it is usually sufficient to read the CSV files in `processed/` and `predictions/` without reconstructing the original dataset.

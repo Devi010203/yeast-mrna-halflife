@@ -16,13 +16,13 @@
   
   - Model and data paths (specified in `CONFIG`):
   
-    - `MODEL_CODE_PATH`: main training script path (provide `Config`, model class and `get_device`, with `collate_fn_no_chunk` preferred for reuse if available);
+    - `MODEL_CODE_PATH`: absolute path to this repository's `code_release/src/main.py` (provides `Config`, the model class, `get_device`, and `collate_fn_no_chunk`);
   
     - `RUN_DIR`: training results directory (must contain `final_test_predictions.csv`, provide `sequence` column);
   
     - `CKPT_PATH`: the trained weights file (e.g. `best_model_final.pth`);
   
-    - `LOCAL_TOKENIZER_DIR`, `LOCAL_RNAFM_DIR`: local RNA-FM tokenizer and model directories.
+    - `LOCAL_TOKENIZER_DIR`, `LOCAL_RNAFM_DIR`: both point to the converted bundle at `<repository>/data_release/model/rna-fm`. Install it following [the model instructions](../../../../data_release/model/README.md); the original `.pth` file is not this bundle. `CKPT_PATH` separately refers to the trained half-life regressor.
   
   - Masking and sampling settings: e.g. `SUBSET_N` (number of sequences involved in masking), `WINDOW_SIZE`, `WINDOW_STEP`, `FILL_CHAR`, etc;
   

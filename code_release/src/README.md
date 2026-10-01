@@ -8,5 +8,6 @@ For more information about the installation and usage of **uv, please refer to t
 
 ## Main program
 
-- `main.py`: the main program of the project, which implements the **50% cross validation** and the **complete training and evaluation process using all data at once**.
-- Before running the main program, please make sure you have configured your environment correctly and downloaded the rna-fm pre-training model file into the `data_release\model\rna-fm` folder.
+- `main.py`: runs **five-fold cross-validation**, followed by final training and evaluation on a held-out test set.
+- From this directory, run `uv sync --locked`. Follow the [RNA-FM installation instructions](../../data_release/model/README.md) to convert the original checkpoint into the model/tokenizer directory at `data_release/model/rna-fm`.
+- Run `uv run check_rnafm.py` before `uv run main.py`. Original `.pth` files cannot be used directly by the current MultiMolecule loading calls.

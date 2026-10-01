@@ -21,6 +21,7 @@ import math
 import platform
 from datetime import datetime
 from functools import partial
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -66,8 +67,9 @@ class RunParams:
 # 1. Configuration consistent with the main program
 # ======================
 class Config:
-    DATA_PATH = 'data/mRNA_half_life_dataset_RNA.csv'
-    PRETRAINED_MODEL_NAME = "model/rna-fm"
+    DATA_ROOT = Path(__file__).resolve().parents[4] / "data_release"
+    DATA_PATH = DATA_ROOT / "processed" / "mRNA_half_life_dataset_RNA.csv"
+    PRETRAINED_MODEL_NAME = DATA_ROOT / "model" / "rna-fm"
 
     MODEL_MAX_LENGTH = 448
     EMBEDDING_DIM = 640
@@ -238,7 +240,7 @@ class ChunkingMRNATransformer(nn.Module):
         super().__init__()
         self.config = config
         from multimolecule import RnaFmModel
-        self.backbone = RnaFmModel.from_pretrained(config.PRETRAINED_MODEL_NAME, trust_remote_code=True)
+        self.backbone = RnaFmModel.from_pretrained(str(config.PRETRAINED_MODEL_NAME), local_files_only=True)
         self.token_head = TokenTransformerHead(
             dim=config.EMBEDDING_DIM,
             nhead=10, num_layers=3, ff_mult=4,
@@ -620,7 +622,7 @@ def main():
 
     # Loading tokenizer
     from multimolecule import RnaTokenizer
-    tokenizer = RnaTokenizer.from_pretrained(cfg.PRETRAINED_MODEL_NAME, trust_remote_code=True)
+    tokenizer = RnaTokenizer.from_pretrained(str(cfg.PRETRAINED_MODEL_NAME), local_files_only=True)
     collate = partial(collate_fn_no_chunk, tokenizer=tokenizer, config=cfg)
 
     # Load trained model

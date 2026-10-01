@@ -18,19 +18,29 @@ This project uses [uv](https://github.com/astral-sh/uv) to manage Python depende
 
 ### Quick start
 
-Execute in the project root directory (the directory containing `pyproject.toml`):
+From the repository root, enter the directory containing `pyproject.toml`:
 
-# Install/synchronize dependencies and create a virtual environment (.venv/)
-uv sync
+```sh
+cd code_release/src
+uv sync --locked
+```
 
-# Run the main program (5-fold cross-validation + full data complete training/evaluation)
+Before training, follow [the RNA-FM installation instructions](data_release/model/README.md)
+to download and convert the original `.pth` checkpoint into a MultiMolecule
+model/tokenizer bundle. Then, from `code_release/src`, run:
+
+```sh
+uv run check_rnafm.py
 uv run main.py
+```
 
 If you need to run separate analysis/plotting scripts, e.g. cross-validation results visualization:
 
-uv run Paper/plots/new-2/plot_cv.py
+```sh
+uv run analysis_and_plot/assess/plot_cv.py
+```
 
-(Please adjust the script path according to the actual directory structure.)
+Configure each analysis script's input paths before running it.
 
 --- - - - - - - - - - - - - - - - - - - - - - -
 
@@ -42,7 +52,10 @@ uv run Paper/plots/new-2/plot_cv.py
 
 Run the example:
 
+```sh
+cd code_release/src  # from the repository root
 uv run main.py
+```
 
 For details on data paths, output directories, etc., please refer to the `main.py` internal comments and configuration.
 
@@ -68,7 +81,9 @@ Reserved **RNA-FM pre-training model storage location**.
  
 This repository does not provide weights files directly.
  
-Please follow the instructions in `data_release/README.md` to download the corresponding RNA-FM model and tokenizer from the official sources and place them in this directory for a complete reproduction of the experiment.
+Follow [data_release/model/README.md](data_release/model/README.md) to install
+the model and matching tokenizer at `data_release/model/rna-fm`. The current
+code uses MultiMolecule; original RNA-FM `.pth` checkpoints require conversion.
 
 > See `data_release/README.md` for a more detailed description of data sources and fields.
 
@@ -89,9 +104,11 @@ Typical uses include (examples):
 - Sliding-window occlusion position effect analysis
 - Interpretability (motif substitution, in-silico mutation) analysis.
 
-This can usually be run directly from the project root directory via uv, e.g.:
+Run scripts from `code_release/src` in the locked environment, e.g.:
 
-uv run plot_bland_altman.py
+```sh
+uv run analysis_and_plot/assess/plot_bland_altman.py
+```
 
 The input files (datasets/predictions) required for each script are typically from:
 
